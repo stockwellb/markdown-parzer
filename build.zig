@@ -68,11 +68,25 @@ pub fn build(b: *std.Build) void {
         }),
     });
 
-    // Install both executables
+    // Create the HTML renderer executable
+    const html_exe = b.addExecutable(.{
+        .name = "html",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("cmd/html/main.zig"),
+            .target = target,
+            .optimize = optimize,
+            .imports = &.{
+                .{ .name = "markdown_parzer", .module = mod },
+            },
+        }),
+    });
+
+    // Install all executables
     b.installArtifact(lex_exe);
     b.installArtifact(parse_exe);
+    b.installArtifact(html_exe);
 
-    // Create run steps for both executables
+    // Create run steps for all executables
     const run_lex_step = b.step("run-lex", "Run the lexer");
     const run_lex_cmd = b.addRunArtifact(lex_exe);
     run_lex_step.dependOn(&run_lex_cmd.step);
@@ -83,6 +97,11 @@ pub fn build(b: *std.Build) void {
     run_parse_step.dependOn(&run_parse_cmd.step);
     run_parse_cmd.step.dependOn(b.getInstallStep());
 
+    const run_html_step = b.step("run-html", "Run the HTML renderer");
+    const run_html_cmd = b.addRunArtifact(html_exe);
+    run_html_step.dependOn(&run_html_cmd.step);
+    run_html_cmd.step.dependOn(b.getInstallStep());
+
     // Default run step runs the lexer
     const run_step = b.step("run", "Run the lexer (default)");
     run_step.dependOn(run_lex_step);
@@ -92,6 +111,7 @@ pub fn build(b: *std.Build) void {
     if (b.args) |args| {
         run_lex_cmd.addArgs(args);
         run_parse_cmd.addArgs(args);
+        run_html_cmd.addArgs(args);
     }
 
     // Creates an executable that will run `test` blocks from the provided module.
@@ -114,9 +134,15 @@ pub fn build(b: *std.Build) void {
         .root_module = parse_exe.root_module,
     });
 
+    // Creates an executable that will run `test` blocks from the html executable
+    const html_tests = b.addTest(.{
+        .root_module = html_exe.root_module,
+    });
+
     // Run steps for test executables
     const run_lex_tests = b.addRunArtifact(lex_tests);
     const run_parse_tests = b.addRunArtifact(parse_tests);
+    const run_html_tests = b.addRunArtifact(html_tests);
 
     // A top level step for running all tests. dependOn can be called multiple
     // times and since the run steps do not depend on one another, this will
@@ -125,6 +151,7 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_mod_tests.step);
     test_step.dependOn(&run_lex_tests.step);
     test_step.dependOn(&run_parse_tests.step);
+    test_step.dependOn(&run_html_tests.step);
 
     // Just like flags, top level steps are also listed in the `--help` menu.
     //

@@ -25,13 +25,17 @@ pub fn main() !void {
         allocator.free(tokens);
     }
 
-    // Convert tokens to HTML
-    const html = try tokensToHtml(allocator, tokens);
-    defer allocator.free(html);
+    // Parse tokens into AST
+    var parser = markdown_parzer.Parser.init(allocator, tokens);
+    const ast = try parser.parse();
+    defer {
+        ast.deinit(allocator);
+        allocator.destroy(ast);
+    }
 
-    // Output HTML to stdout
+    // Output AST as JSON to stdout
     const stdout = std.io.getStdOut().writer();
-    try stdout.print("{s}", .{html});
+    try outputAstAsJson(stdout, ast);
 }
 
 fn parseJsonTokens(allocator: std.mem.Allocator, json: []const u8) ![]Token {
@@ -122,85 +126,35 @@ fn unescapeJsonString(allocator: std.mem.Allocator, s: []const u8) ![]const u8 {
     return try allocator.dupe(u8, s);
 }
 
-fn tokensToHtml(allocator: std.mem.Allocator, tokens: []const Token) ![]u8 {
-    var html = std.ArrayList(u8).init(allocator);
-    var writer = html.writer();
+fn outputAstAsJson(writer: anytype, ast: *const markdown_parzer.Node) !void {
+    try writer.print("{{", .{});
+    try writer.print("\"type\":\"{s}\"", .{@tagName(ast.type)});
     
-    try writer.print("<!DOCTYPE html>\n<html>\n<head>\n<title>Parsed Markdown</title>\n</head>\n<body>\n", .{});
-    
-    var i: usize = 0;
-    var in_heading = false;
-    var heading_level: u8 = 1;
-    var in_paragraph = false;
-    var in_strong = false;
-    var strong_count: u8 = 0;
-    
-    while (i < tokens.len) {
-        const token = tokens[i];
-        
-        switch (token.type) {
-            .hash => {
-                if (!in_heading) {
-                    // Count consecutive hashes for heading level
-                    heading_level = 1;
-                    var j = i + 1;
-                    while (j < tokens.len and tokens[j].type == .hash) {
-                        heading_level += 1;
-                        j += 1;
-                    }
-                    try writer.print("<h{d}>", .{heading_level});
-                    in_heading = true;
-                    i = j - 1; // Skip the counted hashes
-                }
-            },
-            .star => {
-                strong_count += 1;
-                if (strong_count == 2) {
-                    if (in_strong) {
-                        try writer.print("</strong>", .{});
-                        in_strong = false;
-                    } else {
-                        try writer.print("<strong>", .{});
-                        in_strong = true;
-                    }
-                    strong_count = 0;
-                }
-            },
-            .newline => {
-                if (in_heading) {
-                    try writer.print("</h{d}>\n", .{heading_level});
-                    in_heading = false;
-                } else if (in_paragraph) {
-                    try writer.print("</p>\n", .{});
-                    in_paragraph = false;
-                }
-                strong_count = 0; // Reset star count on newline
-            },
-            .text => {
-                if (!in_heading and !in_paragraph) {
-                    try writer.print("<p>", .{});
-                    in_paragraph = true;
-                }
-                try writer.print("{s}", .{token.value});
-            },
-            .space => {
-                try writer.print(" ", .{});
-            },
-            .eof => break,
-            else => {
-                // Handle other tokens as plain text for now
-                try writer.print("{s}", .{token.value});
-            },
-        }
-        i += 1;
+    if (ast.content) |content| {
+        try writer.print(",\"content\":\"{s}\"", .{escapeJsonString(content)});
     }
     
-    // Close any open tags
-    if (in_strong) try writer.print("</strong>", .{});
-    if (in_heading) try writer.print("</h{d}>\n", .{heading_level});
-    if (in_paragraph) try writer.print("</p>\n", .{});
+    if (ast.level) |level| {
+        try writer.print(",\"level\":{d}", .{level});
+    }
     
-    try writer.print("</body>\n</html>\n", .{});
+    if (ast.children.items.len > 0) {
+        try writer.print(",\"children\":[", .{});
+        for (ast.children.items, 0..) |child, i| {
+            if (i > 0) try writer.print(",", .{});
+            try outputAstAsJson(writer, child);
+        }
+        try writer.print("]", .{});
+    }
     
-    return html.toOwnedSlice();
+    try writer.print("}}", .{});
+}
+
+fn escapeJsonString(s: []const u8) []const u8 {
+    // Simple escaping for common cases - in a real implementation you'd want more robust escaping
+    if (std.mem.eql(u8, s, "\n")) return "\\n";
+    if (std.mem.eql(u8, s, "\t")) return "\\t";
+    if (std.mem.eql(u8, s, "\"")) return "\\\"";
+    if (std.mem.eql(u8, s, "\\")) return "\\\\";
+    return s;
 }

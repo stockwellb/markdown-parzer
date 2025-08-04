@@ -1,11 +1,23 @@
 //! markdown_parzer library - A Markdown lexer and parser for Zig
 const std = @import("std");
 const lexer = @import("lexer.zig");
+const parser = @import("parser.zig");
+const html = @import("html.zig");
 
 // Re-export lexer types for library users
 pub const Token = lexer.Token;
 pub const TokenType = lexer.TokenType;
 pub const Tokenizer = lexer.Tokenizer;
+
+// Re-export parser types for library users
+pub const Node = parser.Node;
+pub const NodeType = parser.NodeType;
+pub const Parser = parser.Parser;
+
+// Re-export HTML renderer functions for library users
+pub const renderToHtml = html.renderToHtml;
+pub const renderNode = html.renderNode;
+pub const jsonAstToHtml = html.jsonAstToHtml;
 
 /// Tokenize a markdown string and return all tokens
 pub fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]Token {
