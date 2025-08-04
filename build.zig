@@ -46,7 +46,7 @@ pub fn build(b: *std.Build) void {
     const lex_exe = b.addExecutable(.{
         .name = "lex",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/main.zig"),
+            .root_source_file = b.path("cmd/lex/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
@@ -59,7 +59,7 @@ pub fn build(b: *std.Build) void {
     const parse_exe = b.addExecutable(.{
         .name = "parse",
         .root_module = b.createModule(.{
-            .root_source_file = b.path("src/parse_main.zig"),
+            .root_source_file = b.path("cmd/parse/main.zig"),
             .target = target,
             .optimize = optimize,
             .imports = &.{
