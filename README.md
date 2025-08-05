@@ -38,10 +38,18 @@ pub fn main() !void {
         allocator.destroy(ast);
     }
 
-    // Render to HTML
+    // Render to HTML with default template
     const html = try markdown_parzer.renderToHtml(allocator, ast);
     defer allocator.free(html);
-    try std.io.getStdOut().writeAll(html);
+    
+    // Or use custom template
+    const custom_template = "<html><body>{content}</body></html>";
+    const custom_html = try markdown_parzer.renderToHtmlWithTemplate(allocator, ast, custom_template);
+    defer allocator.free(custom_html);
+    
+    // Or render body only (no HTML wrapper)
+    const body_only = try markdown_parzer.renderToHtmlBody(allocator, ast);
+    defer allocator.free(body_only);
 
     // Or work with tokenizer directly
     var tokenizer = markdown_parzer.Tokenizer.init(markdown);
@@ -60,8 +68,15 @@ pub fn main() !void {
 - `tokensToZon()` - Serialize tokens to ZON format for pipeline interchange
 - `Parser` - Complete AST builder with support for all major Markdown elements
 - `astToZon()` - Serialize AST to ZON format for pipeline interchange
-- `renderToHtml()` - Render AST directly to HTML
-- `zonAstToHtml()` - Convert ZON AST to HTML (bridge function)
+
+**HTML Rendering:**
+- `renderToHtml()` - Render AST to HTML with default template
+- `renderToHtmlWithTemplate()` - Render AST to HTML with custom template
+- `renderToHtmlBody()` - Render AST content only (no HTML wrapper)
+- `zonAstToHtml()` - Convert ZON AST to HTML with default template
+- `zonAstToHtmlWithTemplate()` - Convert ZON AST to HTML with custom template
+- `zonAstToHtmlBody()` - Convert ZON AST to content only
+- `default_html_template` - Built-in HTML5 template constant
 - `printTokens()` - Debug utility to display tokens in human-readable format
 
 ## Command Line Tools
@@ -70,7 +85,10 @@ For debugging and pipeline composition, each stage is available as a standalone 
 
 - **`lex`** - Tokenizes markdown text into categorized ZON tokens
 - **`parse`** - Converts tokens into a ZON Abstract Syntax Tree (AST)
-- **`html`** - Renders ZON AST to HTML output
+- **`html`** - Renders ZON AST to HTML output with template support:
+  - `html` - Uses built-in HTML5 template
+  - `html template.html` - Uses custom template file with `{content}` placeholder
+  - `html --body-only` - Outputs content only (no HTML wrapper)
 
 ```bash
 # Full pipeline
@@ -144,17 +162,80 @@ This creates executables in `zig-out/bin/`:
 
 - `lex` - Lexical analyzer (outputs ZON tokens)
 - `parse` - Parser (outputs ZON AST)
-- `html` - HTML renderer
+- `html` - HTML renderer with template support
+
+## HTML Template System
+
+The parser includes a flexible template system for customizing HTML output:
+
+### Template Options
+
+**Default Template:**
+```bash
+echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
+```
+Outputs modern HTML5 with responsive meta tags and proper document structure.
+
+**Custom Template:**
+```bash
+echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html template.html
+```
+Uses your custom template file with `{content}` placeholder.
+
+**Body Only:**
+```bash
+echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html --body-only
+```
+Outputs just the HTML content without any wrapper (perfect for embedding).
+
+### Custom Template Format
+
+Create a template file with `{content}` placeholder:
+
+```html
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <title>My Custom Site</title>
+    <style>
+        body { font-family: Arial; max-width: 800px; margin: 0 auto; }
+        h1 { color: #333; }
+    </style>
+</head>
+<body>
+    <header><h1>My Site</h1></header>
+    <main>
+        {content}
+    </main>
+    <footer><p>Powered by markdown-parzer</p></footer>
+</body>
+</html>
+```
+
+**Template Rules:**
+- Must contain `{content}` placeholder where markdown content will be inserted
+- If no placeholder found, only the rendered content is returned
+- Template files are loaded at runtime
+- Falls back to default template if custom template fails to load
 
 ## Working Examples
 
 ### Full Pipeline
 ```bash
-# Convert markdown to HTML
+# Convert markdown to HTML (default template)
 echo "# Hello **World**" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
 
-# Process a file
+# Convert with custom template
+echo "# Hello **World**" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html template.html
+
+# Convert to body-only (for embedding)
+echo "# Hello **World**" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html --body-only
+
+# Process a file with default template
 ./zig-out/bin/lex < README.md | ./zig-out/bin/parse | ./zig-out/bin/html > output.html
+
+# Process a file with custom template
+./zig-out/bin/lex < README.md | ./zig-out/bin/parse | ./zig-out/bin/html template.html > output.html
 ```
 
 ### Debugging Individual Stages
@@ -195,14 +276,19 @@ Example ZON AST output shows the hierarchical structure with enum types for node
 - **Lexer**: Full tokenization with 39+ token types
 - **Parser**: Complete AST generation for all major Markdown elements
 - **HTML Renderer**: Full HTML output with nested element support
+- **Template System**: Custom HTML templates with `{content}` placeholder support
+- **CLI Template Support**: Default, custom template, and body-only modes
 - **ZON Pipeline**: Type-safe data interchange between stages
-- **Library API**: Clean, documented public interface
+- **Library API**: Clean, documented public interface with template functions
 - **Test Coverage**: Comprehensive unit and integration tests
 
 ### 🚧 Planned Enhancements
-- **Additional Markdown Elements**: Links, Images, Blockquotes, Horizontal rules, Tables
+- **Additional Markdown Elements**: 
+  - Links, Images, Blockquotes, Horizontal rules (HTML rendering implemented, parser logic needed)
+  - Tables, Ordered lists, Nested lists
 - **Output Formats**: LaTeX renderer, PDF renderer, Terminal renderer with colors
-- **Advanced Features**: Syntax highlighting for code blocks, Custom HTML templates, Incremental parsing
+- **Advanced Template Features**: Template variables, conditional rendering, loops, includes
+- **Enhanced Features**: Syntax highlighting for code blocks, Incremental parsing
 
 ## Requirements
 

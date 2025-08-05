@@ -62,7 +62,10 @@ echo "# Hello" | lex | parse | ./zig-out/bin/html  # → HTML
 **Commands:**
 - `lex` - Tokenizes markdown into ZON tokens
 - `parse` - Converts tokens into ZON Abstract Syntax Tree (AST)
-- `html` - Renders AST to HTML (future targets: PDF, LaTeX, etc.)
+- `html` - Renders AST to HTML with template support:
+  - Default mode: `html` (uses built-in HTML5 template)
+  - Custom template: `html template.html` (uses custom template file)
+  - Body only: `html --body-only` (outputs content without HTML wrapper)
 
 ## Architecture & Design Patterns
 
@@ -109,8 +112,10 @@ The system implements a classic compiler pipeline with discrete, composable stag
    - **Clean API**: Re-exports all public types and functions
    - **High-level Functions**: `tokenize()` for complete tokenization, `printTokens()` for debugging
    - **ZON Serialization**: `tokensToZon()` for token serialization, `astToZon()` for AST serialization
+   - **HTML Rendering**: `renderToHtml()`, `renderToHtmlWithTemplate()`, `renderToHtmlBody()` for flexible HTML output
+   - **ZON Bridge Functions**: `zonAstToHtml()`, `zonAstToHtmlWithTemplate()`, `zonAstToHtmlBody()` for direct ZON processing
+   - **Template System**: `default_html_template` constant and template placeholder support
    - **Component Access**: Direct access to `Tokenizer`, `Parser`, and HTML rendering functions
-   - **HTML Bridge Functions**: `zonAstToHtml()` for direct ZON to HTML conversion
    - **Dependency Graph**: `root.zig` → `lexer.zig`, `parser.zig`, `html.zig`
 
 ### **Data Flow & Dependencies**
@@ -140,9 +145,10 @@ Raw Markdown → Token Stream (ZON) → AST (ZON) → Target Format
 - **Build Integration**: Parallel test execution across library and CLI components
 
 ### **Extension Points**
-- **Parser Enhancements**: Add support for tables, blockquotes, horizontal rules, images, links (lists and fenced code blocks already implemented)
+- **Parser Enhancements**: Add parsing logic for tables, blockquotes, horizontal rules, images, links (node types already defined, HTML rendering implemented)
 - **New Output Formats**: Add `cmd/pdf/`, `cmd/latex/` etc. that consume ZON AST
-- **Advanced Rendering Features**: Enhanced HTML output, syntax highlighting for code blocks, custom CSS classes
+- **Advanced Template Features**: Template variables, conditional rendering, loops, includes
+- **Enhanced HTML Rendering**: Syntax highlighting for code blocks, custom CSS classes, accessibility features
 - **External Integration**: ZON pipeline enables integration with other languages/tools
 - **Advanced Lexer Features**: Foundation ready for syntax highlighting, error recovery, incremental parsing
 - **Extended List Support**: Ordered lists, nested lists, list item continuation
@@ -172,11 +178,12 @@ ZON (Zig Object Notation) is Zig's native data format, similar to JSON but using
 **Current Status:**
 - **Production Ready**: Complete lexer-parser-renderer pipeline with comprehensive Markdown support
 - **Fully Implemented**: All core components working with major Markdown elements (headings, paragraphs, lists, fenced code blocks, emphasis, strong, inline code)
-- **Advanced Features**: Nested inline formatting, proper ZON escaping, robust error handling
+- **Advanced Features**: Nested inline formatting, proper ZON escaping, robust error handling, HTML template system
+- **Template System**: Complete HTML template support with custom templates, body-only mode, and CLI integration
 - **Architecture Ready**: Extensible design for additional output formats and Markdown elements
 - **Quality Assured**: Comprehensive test coverage, proper memory management, cross-platform support
-- **Pipeline Verified**: Full end-to-end processing from complex Markdown documents to clean HTML output
-- **Recent Improvements**: Migrated from JSON to ZON format for better Zig integration, fixed nested formatting issues, added list and fenced code block support, improved paragraph-list separation
+- **Pipeline Verified**: Full end-to-end processing from complex Markdown documents to customizable HTML output
+- **Recent Improvements**: Added HTML template system with `{content}` placeholder support, custom template file loading, body-only rendering mode, and enhanced CLI with template arguments
 
 ## Lexer Implementation Details
 
@@ -269,6 +276,69 @@ Token Stream → parseBlock() → Block Nodes (heading, paragraph, list, code_bl
 - **Circular Dependencies**: `parseInlineSimple()` prevents recursion issues in nested formatting
 - **ZON Escaping**: Special characters in content properly escaped for ZON format
 
+## HTML Template System
+
+### **Template Architecture**
+The HTML renderer supports flexible template systems for custom document structures:
+
+1. **Default Template**: Built-in modern HTML5 template with responsive meta tags
+2. **Custom Templates**: User-provided HTML templates with `{content}` placeholder 
+3. **Body-only Mode**: Renders just the markdown content without any wrapper HTML
+
+### **Template Functions**
+
+**Core Template Functions:**
+- `renderToHtml()` - Uses default template (backward compatible)
+- `renderToHtmlWithTemplate()` - Uses custom template with `{content}` placeholder
+- `renderToHtmlBody()` - Renders content only, no HTML wrapper
+
+**ZON Integration Functions:**
+- `zonAstToHtml()` - ZON to HTML with default template
+- `zonAstToHtmlWithTemplate()` - ZON to HTML with custom template
+- `zonAstToHtmlBody()` - ZON to HTML body only
+
+### **CLI Template Support**
+
+The `html` command supports multiple modes:
+
+```bash
+# Default template (modern HTML5)
+./zig-out/bin/html
+
+# Custom template file
+./zig-out/bin/html template.html
+
+# Body-only mode (for embedding)
+./zig-out/bin/html --body-only
+```
+
+### **Template Format**
+
+Custom templates use a simple placeholder system:
+
+```html
+<!DOCTYPE html>
+<html>
+<head>
+    <title>My Custom Document</title>
+    <style>/* your styles */</style>
+</head>
+<body>
+    <header>My Site Header</header>
+    <main>
+        {content}
+    </main>
+    <footer>My Site Footer</footer>
+</body>
+</html>
+```
+
+**Template Rules:**
+- Templates must contain `{content}` placeholder where markdown content will be inserted
+- If no `{content}` placeholder found, only the rendered content is returned
+- Template files are read from the filesystem at runtime
+- Error handling: Falls back to default template if custom template fails to load
+
 ## ZON Serialization Implementation
 
 ### **ZON Serialization Architecture**
@@ -302,11 +372,17 @@ The project uses ZON (Zig Object Notation) instead of JSON for several reasons:
 
 ### **Pipeline Usage Examples**
 ```bash
-# Basic heading and text
+# Basic heading and text (default template)
 echo "# Hello World" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
 
+# Custom template usage
+echo "# Hello World" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html custom_template.html
+
+# Body-only output (for embedding in existing pages)
+echo "# Hello World" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html --body-only
+
 # Emphasis and strong text with nested formatting
-echo "This is **\`bold code\`** and *italic* text" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
+echo "This is **bold** and *italic* text" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
 
 # Lists
 echo "- First item\n- Second item" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
@@ -314,10 +390,10 @@ echo "- First item\n- Second item" | ./zig-out/bin/lex | ./zig-out/bin/parse | .
 # Fenced code blocks
 echo "\`\`\`zig\nconst std = @import(\"std\");\n\`\`\`" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
 
-# Inline code
-echo "Use \`code\` for inline code" | ./zig-out/bin/lex | ./zig-out/bin/parse
+# Full document processing with custom template
+./zig-out/bin/lex < README.md | ./zig-out/bin/parse | ./zig-out/bin/html template.html > output.html
 
-# Full document processing
+# Full document processing (default template)
 ./zig-out/bin/lex < README.md | ./zig-out/bin/parse | ./zig-out/bin/html > output.html
 ```
 
@@ -343,13 +419,28 @@ defer {
 const zon_ast = try markdown_parzer.astToZon(allocator, ast);
 defer allocator.free(zon_ast);
 
-// HTML rendering from AST
+// HTML rendering with default template
 const html = try markdown_parzer.renderToHtml(allocator, ast);
 defer allocator.free(html);
 
-// Direct ZON to HTML conversion
+// HTML rendering with custom template
+const custom_template = "<html><body>{content}</body></html>";
+const custom_html = try markdown_parzer.renderToHtmlWithTemplate(allocator, ast, custom_template);
+defer allocator.free(custom_html);
+
+// Body-only rendering (no HTML wrapper)
+const body_only = try markdown_parzer.renderToHtmlBody(allocator, ast);
+defer allocator.free(body_only);
+
+// Direct ZON to HTML conversion with templates
 const html_from_zon = try markdown_parzer.zonAstToHtml(allocator, zon_ast);
 defer allocator.free(html_from_zon);
+
+const custom_from_zon = try markdown_parzer.zonAstToHtmlWithTemplate(allocator, zon_ast, custom_template);
+defer allocator.free(custom_from_zon);
+
+const zon_body_only = try markdown_parzer.zonAstToHtmlBody(allocator, zon_ast);
+defer allocator.free(zon_body_only);
 ```
 
 ### **ZON AST Structure**
