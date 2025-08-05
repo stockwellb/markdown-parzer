@@ -95,28 +95,28 @@ echo "# Hello" | lex | parse            # See AST structure
 
 ### Parser
 
-- **Complete implementation** for all major Markdown elements:
-  - Headings (`#`, `##`, `###`) with level detection
-  - Paragraphs with automatic termination
-  - Lists (`-`, `*`) with proper item parsing
-  - Fenced code blocks (`` ``` ``) with language support
-  - Emphasis (`*text*`) and strong (`**text**`) with nesting
-  - Inline code (`` `code` ``)
-  - Text nodes with proper whitespace handling
-- **Nested inline formatting** - e.g., `**`bold code`**` works correctly
+- **Complete implementation** for all major Markdown elements
+- **Headings** (`#`, `##`, `###`) with level detection
+- **Paragraphs** with automatic termination
+- **Lists** (`-`, `*`) with proper item parsing
+- **Fenced code blocks** with language support
+- **Emphasis** (`*text*`) and strong (`**text**`) with nesting
+- **Inline code** with backtick delimiters
+- **Text nodes** with proper whitespace handling
+- **Nested inline formatting** - e.g., bold text containing inline code works correctly
 - **Memory-safe** with proper allocation/deallocation
 - **ZON AST output** for type-safe data exchange
 
 ### HTML Renderer
 
 - **Complete HTML generation** from ZON AST
-- **All Markdown elements supported**:
-  - Headings (`<h1>` through `<h6>`)
-  - Paragraphs (`<p>`)
-  - Lists (`<ul>`, `<li>`)
-  - Code blocks (`<pre><code>`)
-  - Emphasis (`<em>`) and strong (`<strong>`)
-  - Inline code (`<code>`)
+- **All Markdown elements supported**
+- **Headings** (h1 through h6 tags)
+- **Paragraphs** (p tags)
+- **Lists** (ul and li tags)
+- **Code blocks** (pre and code tags)
+- **Emphasis** (em tags) and strong (strong tags)
+- **Inline code** (code tags)
 - **Nested element support** - handles complex formatting combinations
 - **Proper escaping** for special characters
 
@@ -168,22 +168,13 @@ echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse
 
 ### Complex Markdown Support
 ```bash
-# Lists, code blocks, and nested formatting
-cat << 'EOF' | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
-# Project Overview
+# Lists and nested formatting
+echo "# Project Overview
 
-This is a paragraph with *italic* and **bold** text, plus `inline code`.
+This is a paragraph with *italic* and **bold** text.
 
 - First list item
-- Second list item with **nested formatting**
-
-```zig
-const std = @import("std");
-pub fn main() !void {
-    std.debug.print("Hello, World!\n", .{});
-}
-```
-EOF
+- Second list item with **nested formatting**" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
 ```
 
 ## ZON Format
@@ -195,24 +186,7 @@ The project uses ZON (Zig Object Notation) instead of JSON for data interchange 
 - **Performance**: Zero-copy parsing with `std.zon.parse.fromSlice()`
 - **Readability**: Familiar Zig struct syntax
 
-Example ZON AST output:
-```zig
-.{
-    .type = .document,
-    .content = null,
-    .level = null,
-    .children = .{
-        .{
-            .type = .heading,
-            .content = null,
-            .level = 1,
-            .children = .{
-                .{ .type = .text, .content = "Hello World", .level = null, .children = .{} }
-            }
-        }
-    }
-}
-```
+Example ZON AST output shows the hierarchical structure with enum types for node types, null values for unused fields, and nested children arrays.
 
 
 ## Project Status
@@ -226,20 +200,9 @@ Example ZON AST output:
 - **Test Coverage**: Comprehensive unit and integration tests
 
 ### 🚧 Planned Enhancements
-- **Additional Markdown Elements**:
-  - Links (`[text](url)`)
-  - Images (`![alt](url)`)
-  - Blockquotes (`>`)
-  - Horizontal rules (`---`)
-  - Tables
-- **Output Formats**:
-  - LaTeX renderer
-  - PDF renderer
-  - Terminal renderer with colors
-- **Advanced Features**:
-  - Syntax highlighting for code blocks
-  - Custom HTML templates
-  - Incremental parsing
+- **Additional Markdown Elements**: Links, Images, Blockquotes, Horizontal rules, Tables
+- **Output Formats**: LaTeX renderer, PDF renderer, Terminal renderer with colors
+- **Advanced Features**: Syntax highlighting for code blocks, Custom HTML templates, Incremental parsing
 
 ## Requirements
 
