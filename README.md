@@ -170,47 +170,33 @@ The parser includes a flexible template system for customizing HTML output:
 
 ### Template Options
 
-**Default Template:**
-```bash
-echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html
-```
-Outputs modern HTML5 with responsive meta tags and proper document structure.
+**Default Template:** Uses built-in HTML5 template with responsive meta tags
 
-**Custom Template:**
-```bash
-echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html template.html
-```
-Uses your custom template file with `{content}` placeholder.
+**Custom Template:** Uses your template file with content placeholder 
 
-**Body Only:**
-```bash
-echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/bin/html --body-only
-```
-Outputs just the HTML content without any wrapper (perfect for embedding).
+**Body Only:** Outputs just the content without HTML wrapper (perfect for embedding)
+
+### Usage Examples
+
+Convert markdown with different template modes:
+
+- Default: `echo "# Hello" | lex | parse | html`
+- Custom: `echo "# Hello" | lex | parse | html template.html`  
+- Body only: `echo "# Hello" | lex | parse | html --body-only`
 
 ### Custom Template Format
 
-Create a template file with `{content}` placeholder:
+Create a template file with content placeholder:
 
-```html
-<!DOCTYPE html>
-<html lang="en">
-<head>
-    <title>My Custom Site</title>
-    <style>
-        body { font-family: Arial; max-width: 800px; margin: 0 auto; }
-        h1 { color: #333; }
-    </style>
-</head>
-<body>
-    <header><h1>My Site</h1></header>
-    <main>
-        {content}
-    </main>
-    <footer><p>Powered by markdown-parzer</p></footer>
-</body>
-</html>
 ```
+Template structure:
+- HTML document wrapper
+- HEAD section with title and styles  
+- BODY with header, main content area, footer
+- {content} placeholder in main section
+```
+
+Your template.html should include standard HTML structure with a {content} placeholder where you want the markdown content inserted.
 
 **Template Rules:**
 - Must contain `{content}` placeholder where markdown content will be inserted
@@ -283,9 +269,7 @@ Example ZON AST output shows the hierarchical structure with enum types for node
 - **Test Coverage**: Comprehensive unit and integration tests
 
 ### 🚧 Planned Enhancements
-- **Additional Markdown Elements**: 
-  - Links, Images, Blockquotes, Horizontal rules (HTML rendering implemented, parser logic needed)
-  - Tables, Ordered lists, Nested lists
+- **Additional Markdown Elements**: Links, Images, Blockquotes, Horizontal rules (HTML rendering implemented, parser logic needed), Tables, Ordered lists, Nested lists
 - **Output Formats**: LaTeX renderer, PDF renderer, Terminal renderer with colors
 - **Advanced Template Features**: Template variables, conditional rendering, loops, includes
 - **Enhanced Features**: Syntax highlighting for code blocks, Incremental parsing
