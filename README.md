@@ -12,13 +12,48 @@ Input Markdown → [LEX] → JSON Tokens → [PARSE] → JSON AST → [RENDER] �
 
 Each stage is a separate executable that reads from stdin and writes to stdout, allowing for flexible composition and debugging.
 
-## Tools
+## Library Usage
+
+The primary interface is the Zig library. Import and use the parsing components directly:
+
+```zig
+const std = @import("std");
+const markdown_parzer = @import("markdown_parzer");
+
+pub fn main() !void {
+    var gpa = std.heap.GeneralPurposeAllocator(.{}){}; 
+    defer _ = gpa.deinit();
+    const allocator = gpa.allocator();
+    
+    // Parse markdown to HTML
+    const markdown = "# Hello *World*";
+    const html = try markdown_parzer.parseToHtml(allocator, markdown);
+    defer allocator.free(html);
+    
+    // Or work with individual components
+    var tokenizer = markdown_parzer.Tokenizer.init(markdown);
+    while (true) {
+        const token = tokenizer.next();
+        if (token.type == .eof) break;
+        // Process token...
+    }
+}
+```
+
+### Library Components
+
+- **`Tokenizer`** - Core lexical analyzer (`src/lexer.zig`)
+- **`Parser`** - AST builder *(in progress)*
+- **`parseToHtml()`** - High-level convenience function  
+- **`jsonAstToHtml()`** - Convert JSON AST to HTML
+
+## Command Line Tools
+
+For debugging and pipeline composition, each stage is available as a standalone tool:
 
 - **`lex`** - Tokenizes markdown text into categorized JSON tokens
 - **`parse`** - Converts tokens into a JSON Abstract Syntax Tree (AST)  
 - **`html`** - Renders JSON AST to HTML output
-
-## Usage
 
 ```bash
 # Full pipeline
