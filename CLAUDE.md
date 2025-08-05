@@ -108,7 +108,9 @@ The system implements a classic compiler pipeline with discrete, composable stag
 4. **Library Interface** (`src/root.zig`):
    - **Clean API**: Re-exports all public types and functions
    - **High-level Functions**: `tokenize()` for complete tokenization, `printTokens()` for debugging
+   - **ZON Serialization**: `tokensToZon()` for token serialization, `astToZon()` for AST serialization
    - **Component Access**: Direct access to `Tokenizer`, `Parser`, and HTML rendering functions
+   - **HTML Bridge Functions**: `zonAstToHtml()` for direct ZON to HTML conversion
    - **Dependency Graph**: `root.zig` → `lexer.zig`, `parser.zig`, `html.zig`
 
 ### **Data Flow & Dependencies**
@@ -233,6 +235,13 @@ The parser implements a recursive descent parser that converts token streams int
 - **Text**: All other content preserved as text nodes
 - **Nested Formatting**: Complex combinations like strong text containing code elements
 
+**NodeType Enum Values** (defined but not all fully implemented):
+- `document`, `heading`, `paragraph`, `text`
+- `emphasis`, `strong`, `code`, `code_block`
+- `list`, `list_item`
+- `link`, `image` (enum defined, parser implementation pending)
+- `blockquote`, `horizontal_rule` (enum defined, parser implementation pending)
+
 ### **Parser Architecture Pattern**
 ```
 Token Stream → parseBlock() → Block Nodes (heading, paragraph, list, code_block)
@@ -259,6 +268,35 @@ Token Stream → parseBlock() → Block Nodes (heading, paragraph, list, code_bl
 - **Memory Management**: All allocated nodes properly cleaned up on error
 - **Circular Dependencies**: `parseInlineSimple()` prevents recursion issues in nested formatting
 - **ZON Escaping**: Special characters in content properly escaped for ZON format
+
+## ZON Serialization Implementation
+
+### **ZON Serialization Architecture**
+The library provides first-class support for ZON serialization through dedicated functions:
+
+1. **Token Serialization** (`tokensToZon()`):
+   - Converts token arrays to ZON format using `std.Io.Writer.Allocating`
+   - Handles all token types with proper enum serialization
+   - Used by the `lex` CLI command for output
+
+2. **AST Serialization** (`astToZon()`):
+   - Converts recursive Node structures to ZON format
+   - Uses `SerializableNode` intermediate representation to handle recursive types
+   - Employs `std.zon.stringify.serializeArbitraryDepth()` for deep nesting
+   - Used by the `parse` CLI command for output
+
+3. **SerializableNode Structure**:
+   - Intermediate representation that converts `std.ArrayList(*Node)` to slices
+   - Required because ZON stringify cannot directly serialize ArrayLists
+   - Maintains all node properties (type, content, level, children)
+   - Properly manages memory allocation and deallocation
+
+### **ZON vs JSON**
+The project uses ZON (Zig Object Notation) instead of JSON for several reasons:
+- **Native Integration**: Perfect fit for Zig's type system
+- **Type Safety**: Enums are preserved as enums, not converted to strings
+- **Performance**: Zero-copy parsing with `std.zon.parse.fromSlice()`
+- **Readability**: Zig struct syntax is familiar to Zig developers
 
 ## Working Examples & Usage Patterns
 
@@ -289,6 +327,10 @@ echo "Use \`code\` for inline code" | ./zig-out/bin/lex | ./zig-out/bin/parse
 const tokens = try markdown_parzer.tokenize(allocator, markdown_text);
 defer allocator.free(tokens);
 
+// Serialize tokens to ZON
+const zon_tokens = try markdown_parzer.tokensToZon(allocator, tokens);
+defer allocator.free(zon_tokens);
+
 // Direct parser usage
 var parser = markdown_parzer.Parser.init(allocator, tokens);
 const ast = try parser.parse();
@@ -297,30 +339,73 @@ defer {
     allocator.destroy(ast);
 }
 
-// HTML rendering
+// Serialize AST to ZON
+const zon_ast = try markdown_parzer.astToZon(allocator, ast);
+defer allocator.free(zon_ast);
+
+// HTML rendering from AST
 const html = try markdown_parzer.renderToHtml(allocator, ast);
 defer allocator.free(html);
+
+// Direct ZON to HTML conversion
+const html_from_zon = try markdown_parzer.zonAstToHtml(allocator, zon_ast);
+defer allocator.free(html_from_zon);
 ```
 
 ### **ZON AST Structure**
-The parser produces clean, hierarchical ZON with proper nesting:
+The parser produces clean, hierarchical ZON with proper nesting (using enum types, not strings):
 ```zig
-.{ .type = "document", .children = .{
-    .{ .type = "heading", .level = 1, .children = .{
-        .{ .type = "text", .content = "Hello" },
-        .{ .type = "text", .content = " " },
-        .{ .type = "strong", .children = .{
-            .{ .type = "code", .content = "World" }
-        } }
-    } },
-    .{ .type = "list", .children = .{
-        .{ .type = "list_item", .children = .{
-            .{ .type = "text", .content = "Item 1" }
-        } },
-        .{ .type = "list_item", .children = .{
-            .{ .type = "text", .content = "Item 2" }
-        } }
-    } },
-    .{ .type = "code_block", .content = "const std = @import(\"std\");" }
-} }
+.{
+    .type = .document,
+    .content = null,
+    .level = null,
+    .children = .{
+        .{
+            .type = .heading,
+            .content = null,
+            .level = 1,
+            .children = .{
+                .{ .type = .text, .content = "Hello", .level = null, .children = .{} },
+                .{ .type = .text, .content = " ", .level = null, .children = .{} },
+                .{
+                    .type = .strong,
+                    .content = null,
+                    .level = null,
+                    .children = .{
+                        .{ .type = .code, .content = "World", .level = null, .children = .{} }
+                    }
+                }
+            }
+        },
+        .{
+            .type = .list,
+            .content = null,
+            .level = null,
+            .children = .{
+                .{
+                    .type = .list_item,
+                    .content = null,
+                    .level = null,
+                    .children = .{
+                        .{ .type = .text, .content = "Item 1", .level = null, .children = .{} }
+                    }
+                },
+                .{
+                    .type = .list_item,
+                    .content = null,
+                    .level = null,
+                    .children = .{
+                        .{ .type = .text, .content = "Item 2", .level = null, .children = .{} }
+                    }
+                }
+            }
+        },
+        .{
+            .type = .code_block,
+            .content = "const std = @import(\"std\");",
+            .level = null,
+            .children = .{}
+        }
+    }
+}
 ```
