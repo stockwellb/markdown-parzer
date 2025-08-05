@@ -51,6 +51,64 @@ pub fn printTokens(writer: anytype, tokens: []const Token) !void {
     }
 }
 
+/// Serialize tokens to ZON format
+pub fn tokensToZon(allocator: std.mem.Allocator, tokens: []const Token) ![]u8 {
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    const writer = &aw.writer;
+    
+    try std.zon.stringify.serialize(tokens, .{}, writer);
+    
+    return allocator.dupe(u8, aw.getWritten());
+}
+
+// Serializable representation of Node for ZON output
+const SerializableNode = struct {
+    type: NodeType,
+    content: ?[]const u8 = null,
+    level: ?u8 = null,
+    children: []SerializableNode = &[_]SerializableNode{},
+    
+    fn fromNode(allocator: std.mem.Allocator, node: *const Node) !SerializableNode {
+        var children = std.ArrayList(SerializableNode).init(allocator);
+        defer children.deinit();
+        
+        for (node.children.items) |child| {
+            try children.append(try fromNode(allocator, child));
+        }
+        
+        return SerializableNode{
+            .type = node.type,
+            .content = node.content,
+            .level = node.level,
+            .children = try children.toOwnedSlice(),
+        };
+    }
+    
+    fn deinit(self: *SerializableNode, allocator: std.mem.Allocator) void {
+        for (self.children) |*child| {
+            child.deinit(allocator);
+        }
+        if (self.children.len > 0) {
+            allocator.free(self.children);
+        }
+    }
+};
+
+/// Serialize AST to ZON format  
+pub fn astToZon(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
+    var serializable = try SerializableNode.fromNode(allocator, ast);
+    defer serializable.deinit(allocator);
+    
+    var aw: std.Io.Writer.Allocating = .init(allocator);
+    defer aw.deinit();
+    const writer = &aw.writer;
+    
+    try std.zon.stringify.serializeArbitraryDepth(serializable, .{}, writer);
+    
+    return allocator.dupe(u8, aw.getWritten());
+}
+
 test "tokenize simple markdown" {
     const allocator = std.testing.allocator;
     const input = "# Hello\n**world**";

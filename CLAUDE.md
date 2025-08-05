@@ -8,7 +8,7 @@ This is a modular Markdown parser written in Zig following a **library-first des
 
 **Core Architecture Pattern:**
 ```
-Input Markdown → [LEX] → JSON Tokens → [PARSE] → JSON AST → [RENDER] → Output HTML
+Input Markdown → [LEX] → ZON Tokens → [PARSE] → ZON AST → [RENDER] → Output HTML
 ```
 
 **Structure:**
@@ -18,8 +18,8 @@ Input Markdown → [LEX] → JSON Tokens → [PARSE] → JSON AST → [RENDER] �
   - `parser.zig` - Complete AST generation engine with full Markdown support
   - `html.zig` - HTML rendering engine
 - **CLI Pipeline (`cmd/`)**: Unix-style composable tools
-  - `cmd/lex/` - Tokenizer (markdown → JSON tokens)
-  - `cmd/parse/` - Parser (tokens → JSON AST)  
+  - `cmd/lex/` - Tokenizer (markdown → ZON tokens)
+  - `cmd/parse/` - Parser (tokens → ZON AST)  
   - `cmd/html/` - HTML renderer (AST → HTML)
 
 ## Build Commands
@@ -54,14 +54,14 @@ The markdown parser follows a modular pipeline architecture:
 lex < input.md | parse | html > output.html
 
 # Individual stages
-echo "# Hello" | ./zig-out/bin/lex     # → JSON tokens
-echo "# Hello" | lex | ./zig-out/bin/parse  # → JSON AST  
+echo "# Hello" | ./zig-out/bin/lex     # → ZON tokens
+echo "# Hello" | lex | ./zig-out/bin/parse  # → ZON AST  
 echo "# Hello" | lex | parse | ./zig-out/bin/html  # → HTML
 ```
 
 **Commands:**
-- `lex` - Tokenizes markdown into JSON tokens
-- `parse` - Converts tokens into JSON Abstract Syntax Tree (AST)
+- `lex` - Tokenizes markdown into ZON tokens
+- `parse` - Converts tokens into ZON Abstract Syntax Tree (AST)
 - `html` - Renders AST to HTML (future targets: PDF, LaTeX, etc.)
 
 ## Architecture & Design Patterns
@@ -73,7 +73,7 @@ The system implements a classic compiler pipeline with discrete, composable stag
 - **Modularity**: Each stage can be tested and developed independently
 - **Composability**: Unix-style pipeline allows mixing and matching tools
 - **Extensibility**: New output formats (PDF, LaTeX) can be added as new `cmd/` tools  
-- **Debugging**: Intermediate JSON representations enable pipeline introspection
+- **Debugging**: Intermediate ZON representations enable pipeline introspection
 
 ### **Key Abstractions & Interfaces**
 
@@ -95,13 +95,13 @@ The system implements a classic compiler pipeline with discrete, composable stag
    - **Memory Safety**: Proper allocation/deallocation with content cleanup in `Node.deinit()`
    - **Loop Prevention**: Intelligent advancement logic prevents infinite loops on edge cases
    - **Optional Fields**: Flexible schema for different node types (`level` for headings, `content` for text/code)
-   - **JSON Integration**: Proper JSON escaping for special characters in code blocks and text content
+   - **ZON Integration**: Proper ZON escaping for special characters in code blocks and text content
    - Key types: `Node`, `NodeType`, `Parser`
 
 3. **HTML Renderer** (`src/html.zig`):
    - **Writer-based**: Works with any output stream using `anytype` writer
    - **Recursive Processing**: Handles nested document structures and inline formatting
-   - **JSON Bridge**: Converts JSON AST back to native structures for rendering using `std.json.parseFromSlice`
+   - **ZON Bridge**: Converts ZON AST back to native structures for rendering using `std.zon.parse.fromSlice`
    - **Complete Element Support**: Renders all implemented Markdown elements (headings, paragraphs, lists, code blocks, emphasis, strong, inline code)
    - **Nested Formatting**: Properly handles complex nested structures like strong text containing code elements
 
@@ -113,7 +113,7 @@ The system implements a classic compiler pipeline with discrete, composable stag
 
 ### **Data Flow & Dependencies**
 ```
-Raw Markdown → Token Stream (JSON) → AST (JSON) → Target Format
+Raw Markdown → Token Stream (ZON) → AST (ZON) → Target Format
      ↓              ↓                  ↓              ↓
    lexer.zig    cmd/lex/         cmd/parse/     cmd/html/
 ```
@@ -121,7 +121,7 @@ Raw Markdown → Token Stream (JSON) → AST (JSON) → Target Format
 **Clean Dependency Architecture:**
 - Library modules have minimal coupling
 - CLI tools are thin wrappers around library functions
-- JSON serves as universal intermediate representation
+- ZON serves as universal intermediate representation
 
 ## Development Notes & Conventions
 
@@ -134,14 +134,14 @@ Raw Markdown → Token Stream (JSON) → AST (JSON) → Target Format
 ### **Testing Architecture**
 - **Data-Driven Testing**: Lexer uses structured test cases with expected/actual comparison
 - **Comprehensive Coverage**: Tests for all single/multi-character tokens, edge cases, complex constructs
-- **Integration Testing**: Full pipeline testing capability with JSON intermediates
+- **Integration Testing**: Full pipeline testing capability with ZON intermediates
 - **Build Integration**: Parallel test execution across library and CLI components
 
 ### **Extension Points**
 - **Parser Enhancements**: Add support for tables, blockquotes, horizontal rules, images, links (lists and fenced code blocks already implemented)
-- **New Output Formats**: Add `cmd/pdf/`, `cmd/latex/` etc. that consume JSON AST
+- **New Output Formats**: Add `cmd/pdf/`, `cmd/latex/` etc. that consume ZON AST
 - **Advanced Rendering Features**: Enhanced HTML output, syntax highlighting for code blocks, custom CSS classes
-- **External Integration**: JSON pipeline enables integration with other languages/tools
+- **External Integration**: ZON pipeline enables integration with other languages/tools
 - **Advanced Lexer Features**: Foundation ready for syntax highlighting, error recovery, incremental parsing
 - **Extended List Support**: Ordered lists, nested lists, list item continuation
 
@@ -149,24 +149,32 @@ Raw Markdown → Token Stream (JSON) → AST (JSON) → Target Format
 
 **Why Separate CLI Commands vs Library?**
 1. **Unix Philosophy**: Small, composable tools that do one thing well  
-2. **Language Interop**: JSON interfaces enable integration with other languages
+2. **Language Interop**: ZON interfaces enable integration with other languages
 3. **Pipeline Debugging**: Ability to inspect intermediate stages
 4. **Deployment Flexibility**: Can deploy individual stages or full pipeline
 
-**Why JSON as Intermediate Format?**
-1. **Universal Compatibility**: Language-agnostic data exchange
-2. **Human Readable**: Easy debugging and inspection (`jq` integration)
-3. **Tool Integration**: Enables integration with external processing tools
-4. **Streaming Friendly**: Can be processed incrementally
+**Why ZON as Intermediate Format?**
+1. **Native Integration**: Perfect fit for Zig's type system and memory model
+2. **Human Readable**: Easy debugging and inspection with Zig syntax
+3. **Type Safety**: Compile-time validation of data structures
+4. **Performance**: Zero-copy parsing and efficient memory usage
+5. **Tool Integration**: Enables integration with Zig ecosystem tools
+
+**ZON Format Overview:**
+ZON (Zig Object Notation) is Zig's native data format, similar to JSON but using Zig's struct syntax:
+- Anonymous structs: `.{ .field = value }`
+- Arrays: `.{ item1, item2, item3 }`
+- Native Zig types and syntax
+- Parsed using `std.zon.parse.fromSlice()` in the standard library
 
 **Current Status:**
 - **Production Ready**: Complete lexer-parser-renderer pipeline with comprehensive Markdown support
 - **Fully Implemented**: All core components working with major Markdown elements (headings, paragraphs, lists, fenced code blocks, emphasis, strong, inline code)
-- **Advanced Features**: Nested inline formatting, proper JSON escaping, robust error handling
+- **Advanced Features**: Nested inline formatting, proper ZON escaping, robust error handling
 - **Architecture Ready**: Extensible design for additional output formats and Markdown elements
 - **Quality Assured**: Comprehensive test coverage, proper memory management, cross-platform support
 - **Pipeline Verified**: Full end-to-end processing from complex Markdown documents to clean HTML output
-- **Recent Improvements**: Fixed nested formatting issues, added list and fenced code block support, improved paragraph-list separation
+- **Recent Improvements**: Migrated from JSON to ZON format for better Zig integration, fixed nested formatting issues, added list and fenced code block support, improved paragraph-list separation
 
 ## Lexer Implementation Details
 
@@ -233,7 +241,7 @@ Token Stream → parseBlock() → Block Nodes (heading, paragraph, list, code_bl
                     ↓              ↓
             parseInlineSimple() → Nested Elements (code within strong)
                     ↓
-              JSON AST Output
+              ZON AST Output
 ```
 
 **Key Implementation Features:**
@@ -250,7 +258,7 @@ Token Stream → parseBlock() → Block Nodes (heading, paragraph, list, code_bl
 - **Unknown Tokens**: Any unrecognized token advances parser position safely
 - **Memory Management**: All allocated nodes properly cleaned up on error
 - **Circular Dependencies**: `parseInlineSimple()` prevents recursion issues in nested formatting
-- **JSON Escaping**: Special characters in content properly escaped using `std.json.stringify`
+- **ZON Escaping**: Special characters in content properly escaped for ZON format
 
 ## Working Examples & Usage Patterns
 
@@ -294,38 +302,25 @@ const html = try markdown_parzer.renderToHtml(allocator, ast);
 defer allocator.free(html);
 ```
 
-### **JSON AST Structure**
-The parser produces clean, hierarchical JSON with proper nesting:
-```json
-{
-  "type": "document",
-  "children": [
-    {
-      "type": "heading",
-      "level": 1,
-      "children": [
-        {"type": "text", "content": "Hello"},
-        {"type": "text", "content": " "},
-        {"type": "strong", "children": [
-          {"type": "code", "content": "World"}
-        ]}
-      ]
-    },
-    {
-      "type": "list",
-      "children": [
-        {"type": "list_item", "children": [
-          {"type": "text", "content": "Item 1"}
-        ]},
-        {"type": "list_item", "children": [
-          {"type": "text", "content": "Item 2"}
-        ]}
-      ]
-    },
-    {
-      "type": "code_block",
-      "content": "const std = @import(\"std\");"
-    }
-  ]
-}
+### **ZON AST Structure**
+The parser produces clean, hierarchical ZON with proper nesting:
+```zig
+.{ .type = "document", .children = .{
+    .{ .type = "heading", .level = 1, .children = .{
+        .{ .type = "text", .content = "Hello" },
+        .{ .type = "text", .content = " " },
+        .{ .type = "strong", .children = .{
+            .{ .type = "code", .content = "World" }
+        } }
+    } },
+    .{ .type = "list", .children = .{
+        .{ .type = "list_item", .children = .{
+            .{ .type = "text", .content = "Item 1" }
+        } },
+        .{ .type = "list_item", .children = .{
+            .{ .type = "text", .content = "Item 2" }
+        } }
+    } },
+    .{ .type = "code_block", .content = "const std = @import(\"std\");" }
+} }
 ```

@@ -15,40 +15,8 @@ pub fn main() !void {
     defer allocator.free(tokens);
 
     // Output tokens as ZON to stdout for piping to parser
-    var output = std.ArrayList(u8).init(allocator);
-    defer output.deinit();
-    const writer = output.writer();
+    const zon_output = try markdown_parzer.tokensToZon(allocator, tokens);
+    defer allocator.free(zon_output);
     
-    try writer.print(".{{\n", .{});
-    for (tokens, 0..) |token, i| {
-        if (i > 0) try writer.print(",\n", .{});
-        
-        // Escape the value for ZON format
-        var escaped_value = std.ArrayList(u8).init(allocator);
-        defer escaped_value.deinit();
-        try escapeZonString(token.value, escaped_value.writer());
-        
-        try writer.print("    .{{ .type = \"{s}\", .value = \"{s}\", .line = {d}, .column = {d} }}", .{
-            @tagName(token.type),
-            escaped_value.items,
-            token.line,
-            token.column,
-        });
-    }
-    try writer.print("\n}}\n", .{});
-    
-    try std.fs.File.stdout().writeAll(output.items);
-}
-
-fn escapeZonString(s: []const u8, writer: anytype) !void {
-    for (s) |c| {
-        switch (c) {
-            '"' => try writer.print("\\\"", .{}),
-            '\\' => try writer.print("\\\\", .{}),
-            '\n' => try writer.print("\\n", .{}),
-            '\t' => try writer.print("\\t", .{}),
-            '\r' => try writer.print("\\r", .{}),
-            else => try writer.writeByte(c),
-        }
-    }
+    try std.fs.File.stdout().writeAll(zon_output);
 }

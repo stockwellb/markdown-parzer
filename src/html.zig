@@ -193,7 +193,7 @@ const JsonAstNode = struct {
 
 // ZON AST input structure
 const ZonAstInput = struct {
-    type: []const u8,
+    type: NodeType,
     content: ?[]const u8 = null,
     level: ?u8 = null,
     children: []ZonAstInput = &[_]ZonAstInput{},
@@ -212,8 +212,8 @@ fn parseZonAst(allocator: std.mem.Allocator, zon: []const u8) !Node {
 }
 
 fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
-    // Get node type
-    const node_type = std.meta.stringToEnum(NodeType, input.type) orelse .document;
+    // Get node type directly from enum
+    const node_type = input.type;
     
     var node = Node.init(allocator, node_type);
     
