@@ -7,34 +7,48 @@ pub fn main() !void {
     const allocator = gpa.allocator();
 
     // Read from stdin
-    const stdin = std.io.getStdIn().reader();
-    const contents = try stdin.readAllAlloc(allocator, std.math.maxInt(usize));
+    const contents = try std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(contents);
 
     // Tokenize the input
     const tokens = try markdown_parzer.tokenize(allocator, contents);
     defer allocator.free(tokens);
 
-    // Output tokens as JSON to stdout for piping to parser
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print("[", .{});
+    // Output tokens as ZON to stdout for piping to parser
+    var output = std.ArrayList(u8).init(allocator);
+    defer output.deinit();
+    const writer = output.writer();
+    
+    try writer.print(".{{\n", .{});
     for (tokens, 0..) |token, i| {
-        if (i > 0) try stdout.print(",", .{});
-        try stdout.print("{{\"type\":\"{s}\",\"value\":\"{s}\",\"line\":{d},\"column\":{d}}}", .{
+        if (i > 0) try writer.print(",\n", .{});
+        
+        // Escape the value for ZON format
+        var escaped_value = std.ArrayList(u8).init(allocator);
+        defer escaped_value.deinit();
+        try escapeZonString(token.value, escaped_value.writer());
+        
+        try writer.print("    .{{ .type = \"{s}\", .value = \"{s}\", .line = {d}, .column = {d} }}", .{
             @tagName(token.type),
-            escapeJsonString(token.value),
+            escaped_value.items,
             token.line,
             token.column,
         });
     }
-    try stdout.print("]\n", .{});
+    try writer.print("\n}}\n", .{});
+    
+    try std.fs.File.stdout().writeAll(output.items);
 }
 
-fn escapeJsonString(s: []const u8) []const u8 {
-    // Simple escaping for common cases - in a real implementation you'd want more robust escaping
-    if (std.mem.eql(u8, s, "\n")) return "\\n";
-    if (std.mem.eql(u8, s, "\t")) return "\\t";
-    if (std.mem.eql(u8, s, "\"")) return "\\\"";
-    if (std.mem.eql(u8, s, "\\")) return "\\\\";
-    return s;
+fn escapeZonString(s: []const u8, writer: anytype) !void {
+    for (s) |c| {
+        switch (c) {
+            '"' => try writer.print("\\\"", .{}),
+            '\\' => try writer.print("\\\\", .{}),
+            '\n' => try writer.print("\\n", .{}),
+            '\t' => try writer.print("\\t", .{}),
+            '\r' => try writer.print("\\r", .{}),
+            else => try writer.writeByte(c),
+        }
+    }
 }

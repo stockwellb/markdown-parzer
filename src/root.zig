@@ -17,7 +17,8 @@ pub const Parser = parser.Parser;
 // Re-export HTML renderer functions for library users
 pub const renderToHtml = html.renderToHtml;
 pub const renderNode = html.renderNode;
-pub const jsonAstToHtml = html.jsonAstToHtml;
+pub const zonAstToHtml = html.zonAstToHtml;
+pub const jsonAstToHtml = html.jsonAstToHtml; // Legacy support
 
 /// Tokenize a markdown string and return all tokens
 pub fn tokenize(allocator: std.mem.Allocator, input: []const u8) ![]Token {

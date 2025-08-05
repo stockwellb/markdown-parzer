@@ -6,16 +6,14 @@ pub fn main() !void {
     defer _ = gpa.deinit();
     const allocator = gpa.allocator();
 
-    // Read JSON AST from stdin
-    const stdin = std.io.getStdIn().reader();
-    const json_input = try stdin.readAllAlloc(allocator, std.math.maxInt(usize));
-    defer allocator.free(json_input);
+    // Read ZON AST from stdin
+    const zon_input = try std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize));
+    defer allocator.free(zon_input);
 
-    // Convert JSON AST to HTML using the library
-    const html = try markdown_parzer.jsonAstToHtml(allocator, json_input);
+    // Convert ZON AST to HTML using the library
+    const html = try markdown_parzer.zonAstToHtml(allocator, zon_input);
     defer allocator.free(html);
 
     // Output HTML to stdout
-    const stdout = std.io.getStdOut().writer();
-    try stdout.print("{s}", .{html});
+    try std.fs.File.stdout().writeAll(html);
 }

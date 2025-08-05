@@ -138,14 +138,19 @@ pub fn renderNode(writer: anytype, node: *const Node) !void {
     }
 }
 
-/// Parse JSON AST and render to HTML
-/// This is a convenience function that combines JSON parsing + HTML rendering
-pub fn jsonAstToHtml(allocator: std.mem.Allocator, json_ast: []const u8) ![]u8 {
-    // Parse the JSON AST back into a Node structure
-    var ast = try parseJsonAst(allocator, json_ast);
+/// Parse ZON AST and render to HTML
+/// This is a convenience function that combines ZON parsing + HTML rendering
+pub fn zonAstToHtml(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8 {
+    // Parse the ZON AST back into a Node structure
+    var ast = try parseZonAst(allocator, zon_ast);
     defer ast.deinit(allocator);
     
     return renderToHtml(allocator, &ast);
+}
+
+/// Legacy function name for backward compatibility
+pub fn jsonAstToHtml(allocator: std.mem.Allocator, json_ast: []const u8) ![]u8 {
+    return parseJsonAst(allocator, json_ast);
 }
 
 // Simple AST structure for JSON parsing (separate from the main parser Node)
@@ -186,51 +191,57 @@ const JsonAstNode = struct {
     }
 };
 
-fn parseJsonAst(allocator: std.mem.Allocator, json: []const u8) !Node {
-    var parsed = std.json.parseFromSlice(std.json.Value, allocator, json, .{}) catch |err| {
-        std.debug.print("Failed to parse JSON: {any}\n", .{err});
-        return err;
-    };
-    defer parsed.deinit();
+// ZON AST input structure
+const ZonAstInput = struct {
+    type: []const u8,
+    content: ?[]const u8 = null,
+    level: ?u8 = null,
+    children: []ZonAstInput = &[_]ZonAstInput{},
+};
+
+fn parseZonAst(allocator: std.mem.Allocator, zon: []const u8) !Node {
+    // Use std.zon.parse.fromSlice for ZON data
+    // Need null-terminated string for ZON parser
+    const zon_terminated = try allocator.dupeZ(u8, zon);
+    defer allocator.free(zon_terminated);
     
-    return try parseJsonValue(allocator, parsed.value);
+    const parsed = std.zon.parse.fromSlice(ZonAstInput, allocator, zon_terminated, null, .{}) catch return error.InvalidZon;
+    defer std.zon.parse.free(allocator, parsed);
+    
+    return try zonInputToNode(allocator, parsed);
 }
 
-fn parseJsonValue(allocator: std.mem.Allocator, value: std.json.Value) !Node {
-    const obj = value.object;
-    
+fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
     // Get node type
-    const type_str = obj.get("type").?.string;
-    const node_type = std.meta.stringToEnum(NodeType, type_str) orelse .document;
+    const node_type = std.meta.stringToEnum(NodeType, input.type) orelse .document;
     
     var node = Node.init(allocator, node_type);
     
-    // Get content if present
-    if (obj.get("content")) |content_value| {
-        if (content_value == .string) {
-            node.content = try allocator.dupe(u8, content_value.string);
-        }
+    // Set content if present
+    if (input.content) |content| {
+        node.content = try allocator.dupe(u8, content);
     }
     
-    // Get level if present
-    if (obj.get("level")) |level_value| {
-        if (level_value == .integer) {
-            node.level = @intCast(level_value.integer);
-        }
-    }
+    // Set level if present
+    node.level = input.level;
     
-    // Get children if present
-    if (obj.get("children")) |children_value| {
-        if (children_value == .array) {
-            for (children_value.array.items) |child_value| {
-                const child_node = try allocator.create(Node);
-                child_node.* = try parseJsonValue(allocator, child_value);
-                try node.children.append(child_node);
-            }
-        }
+    // Convert children
+    for (input.children) |child_input| {
+        const child_node = try allocator.create(Node);
+        child_node.* = try zonInputToNode(allocator, child_input);
+        try node.children.append(child_node);
     }
     
     return node;
+}
+
+
+
+fn parseJsonAst(allocator: std.mem.Allocator, json: []const u8) ![]u8 {
+    // Legacy JSON support - deprecated, use ZON instead
+    _ = json;
+    _ = allocator;
+    return error.JsonDeprecated;
 }
 
 test "render empty document" {
