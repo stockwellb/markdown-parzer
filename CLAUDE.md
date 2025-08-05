@@ -78,10 +78,13 @@ The system implements a classic compiler pipeline with discrete, composable stag
 ### **Key Abstractions & Interfaces**
 
 1. **Lexer** (`src/lexer.zig`): 
-   - **Complete Character Coverage**: Handles all Markdown special characters
-   - **Position Tracking**: Line/column information for error reporting
+   - **Complete Character Coverage**: Handles all Markdown special characters plus comprehensive non-printing character detection
+   - **Non-printing Character Detection**: Zero-width spaces, control characters, non-breaking spaces, Unicode whitespace
+   - **Position Tracking**: Accurate line/column information for error reporting with proper handling of zero-width characters
+   - **Cross-platform Line Endings**: Proper handling of `\r\n` and `\r` characters
+   - **Modular Design**: Clean separation of concerns with `collectText()` and `tryConsumeUnicodeNonPrinting()` functions
    - **Streaming Design**: Memory-efficient processing of large files
-   - **Data-Driven Tests**: Comprehensive test coverage with structured test cases
+   - **Data-Driven Tests**: Comprehensive test coverage with structured test cases including edge cases
    - Key types: `Token`, `TokenType`, `Tokenizer`
 
 2. **Parser** (`src/parser.zig`):
@@ -97,6 +100,8 @@ The system implements a classic compiler pipeline with discrete, composable stag
 
 4. **Library Interface** (`src/root.zig`):
    - **Clean API**: Re-exports all public types and functions
+   - **High-level Functions**: `tokenize()` for complete tokenization, `printTokens()` for debugging
+   - **Component Access**: Direct access to `Tokenizer`, `Parser`, and HTML rendering functions
    - **Dependency Graph**: `root.zig` → `lexer.zig`, `parser.zig`, `html.zig`
 
 ### **Data Flow & Dependencies**
@@ -126,10 +131,11 @@ Raw Markdown → Token Stream (JSON) → AST (JSON) → Target Format
 - **Build Integration**: Parallel test execution across library and CLI components
 
 ### **Extension Points**
-- **Ready for Implementation**: Parser framework in place, just needs AST building logic
+- **Ready for Implementation**: Parser framework in place, just needs AST building logic  
 - **New Output Formats**: Add `cmd/pdf/`, `cmd/latex/` etc. that consume JSON AST
 - **Enhanced Rendering**: Current HTML renderer is basic but fully extensible
 - **External Integration**: JSON pipeline enables integration with other languages/tools
+- **Advanced Lexer Features**: Foundation ready for syntax highlighting, error recovery, incremental parsing
 
 ### **Architectural Decisions & Rationale**
 
@@ -146,6 +152,29 @@ Raw Markdown → Token Stream (JSON) → AST (JSON) → Target Format
 4. **Streaming Friendly**: Can be processed incrementally
 
 **Current Status:**
-- **Production Ready**: Lexer, CLI pipeline, basic HTML renderer, build system
+- **Production Ready**: Full-featured lexer with non-printing character detection, CLI pipeline, HTML renderer, comprehensive build system
 - **Implementation Ready**: Parser framework prepared for AST generation logic
 - **Architecture Ready**: Extensible design for additional output formats
+- **Quality Assured**: Comprehensive test coverage, proper error handling, cross-platform support
+
+## Lexer Implementation Details
+
+### **Advanced Tokenization Features**
+- **Special Character Detection**: 39+ distinct token types covering all Markdown syntax
+- **Non-printing Character Categorization**: 
+  - Zero-width space (`\u200B`) 
+  - Non-breaking space (`\u00A0`)
+  - Control characters (0x00-0x1F, 0x7F)
+  - Byte order mark (`\uFEFF`)
+- **Text Collection**: `collectText()` function efficiently gathers consecutive text characters
+- **Unicode Handling**: `tryConsumeUnicodeNonPrinting()` properly handles multi-byte Unicode sequences
+- **Position Accuracy**: Zero-width characters don't advance column count, maintaining visual accuracy
+
+### **Lexer Architecture Pattern**
+The lexer follows a clean state machine pattern:
+1. **Character Classification**: `getTokenType()`, `getNonPrintingTokenType()`, `getUnicodeNonPrintingType()`
+2. **Position Management**: `advance()`, `peek()` with proper line/column tracking  
+3. **Token Generation**: `makeToken()` creates tokens with position metadata
+4. **Text Aggregation**: `collectText()` efficiently handles consecutive text characters
+
+This modular design enables easy extension for new character types and preprocessing needs.
