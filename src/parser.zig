@@ -536,16 +536,63 @@ pub const Parser = struct {
         return second_token.type == .space;
     }
 
+    /// Get the indentation level before a list item (count spaces/tabs)
+    fn getListIndentLevel(self: *Parser) u32 {
+        var temp_pos = self.current;
+        var indent_level: u32 = 0;
+        
+        // Look backwards from current position to find start of line
+        while (temp_pos > 0) {
+            temp_pos -= 1;
+            const token = self.tokens[temp_pos];
+            if (token.type == .newline) {
+                temp_pos += 1; // Move to first token after newline
+                break;
+            }
+        }
+        
+        // Count spaces and tabs from start of line
+        while (temp_pos < self.current) {
+            const token = self.tokens[temp_pos];
+            if (token.type == .space) {
+                indent_level += 1;
+            } else if (token.type == .tab) {
+                indent_level += 4; // Treat tab as 4 spaces
+            } else {
+                break;
+            }
+            temp_pos += 1;
+        }
+        
+        return indent_level;
+    }
+
     /// Parse a list (multiple list items)
     fn parseList(self: *Parser) !*Node {
+        return try self.parseListAtLevel(0);
+    }
+
+    /// Parse a list at a specific indentation level
+    fn parseListAtLevel(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Node {
         const list = try self.allocator.create(Node);
         list.* = Node.init(self.allocator, .list);
         
-        // Parse consecutive list items
+        // Parse consecutive list items at this indentation level
         while (self.peek()) |token| {
             if ((token.type == .minus or token.type == .star) and self.isListItem()) {
-                const list_item = try self.parseListItem();
-                try list.children.append(list_item);
+                const current_indent = self.getListIndentLevel();
+                
+                if (current_indent == base_indent) {
+                    // Same level - parse this item
+                    const list_item = try self.parseListItemWithNesting(base_indent);
+                    try list.children.append(list_item);
+                } else if (current_indent < base_indent) {
+                    // Less indented - return to parent level
+                    break;
+                } else {
+                    // More indented - should be handled by parent item's nested list
+                    break;
+                }
             } else {
                 break;
             }
@@ -559,6 +606,11 @@ pub const Parser = struct {
 
     /// Parse a single list item (- content)
     fn parseListItem(self: *Parser) !*Node {
+        return try self.parseListItemWithNesting(0);
+    }
+
+    /// Parse a single list item with nesting support
+    fn parseListItemWithNesting(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Node {
         // Consume the - or * marker
         _ = self.advance();
         
@@ -583,6 +635,27 @@ pub const Parser = struct {
             } else {
                 // Skip unknown tokens
                 _ = self.advance();
+            }
+        }
+        
+        // After parsing the content, check for nested list items
+        self.skipWhitespaceAndNewlines();
+        
+        // Look ahead for nested list items (more indented)
+        while (self.peek()) |token| {
+            if ((token.type == .minus or token.type == .star) and self.isListItem()) {
+                const current_indent = self.getListIndentLevel();
+                
+                if (current_indent > base_indent) {
+                    // This is a nested list - parse it
+                    const nested_list = try self.parseListAtLevel(current_indent);
+                    try list_item.children.append(nested_list);
+                } else {
+                    // Same or less indented - belongs to parent
+                    break;
+                }
+            } else {
+                break;
             }
         }
         
