@@ -131,7 +131,8 @@ fn outputAstAsJson(writer: anytype, ast: *const markdown_parzer.Node) !void {
     try writer.print("\"type\":\"{s}\"", .{@tagName(ast.type)});
     
     if (ast.content) |content| {
-        try writer.print(",\"content\":\"{s}\"", .{escapeJsonString(content)});
+        try writer.print(",\"content\":", .{});
+        try std.json.stringify(content, .{}, writer);
     }
     
     if (ast.level) |level| {
@@ -150,11 +151,3 @@ fn outputAstAsJson(writer: anytype, ast: *const markdown_parzer.Node) !void {
     try writer.print("}}", .{});
 }
 
-fn escapeJsonString(s: []const u8) []const u8 {
-    // Simple escaping for common cases - in a real implementation you'd want more robust escaping
-    if (std.mem.eql(u8, s, "\n")) return "\\n";
-    if (std.mem.eql(u8, s, "\t")) return "\\t";
-    if (std.mem.eql(u8, s, "\"")) return "\\\"";
-    if (std.mem.eql(u8, s, "\\")) return "\\\\";
-    return s;
-}

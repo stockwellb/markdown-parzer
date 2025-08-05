@@ -187,42 +187,49 @@ const JsonAstNode = struct {
 };
 
 fn parseJsonAst(allocator: std.mem.Allocator, json: []const u8) !Node {
-    // Very simplified JSON parsing for our AST format
-    // In a real implementation, you'd use a proper JSON parser
+    var parsed = std.json.parseFromSlice(std.json.Value, allocator, json, .{}) catch |err| {
+        std.debug.print("Failed to parse JSON: {any}\n", .{err});
+        return err;
+    };
+    defer parsed.deinit();
     
-    var json_node = JsonAstNode{ .type = .document };
+    return try parseJsonValue(allocator, parsed.value);
+}
+
+fn parseJsonValue(allocator: std.mem.Allocator, value: std.json.Value) !Node {
+    const obj = value.object;
     
-    // Extract type
-    if (std.mem.indexOf(u8, json, "\"type\":\"")) |type_start| {
-        const type_value_start = type_start + 8;
-        if (std.mem.indexOf(u8, json[type_value_start..], "\"")) |type_end| {
-            const type_str = json[type_value_start..type_value_start + type_end];
-            json_node.type = std.meta.stringToEnum(NodeType, type_str) orelse .document;
+    // Get node type
+    const type_str = obj.get("type").?.string;
+    const node_type = std.meta.stringToEnum(NodeType, type_str) orelse .document;
+    
+    var node = Node.init(allocator, node_type);
+    
+    // Get content if present
+    if (obj.get("content")) |content_value| {
+        if (content_value == .string) {
+            node.content = try allocator.dupe(u8, content_value.string);
         }
     }
     
-    // Extract content if present
-    if (std.mem.indexOf(u8, json, "\"content\":\"")) |content_start| {
-        const content_value_start = content_start + 11;
-        if (std.mem.indexOf(u8, json[content_value_start..], "\"")) |content_end| {
-            const content_str = json[content_value_start..content_value_start + content_end];
-            json_node.content = try allocator.dupe(u8, content_str);
+    // Get level if present
+    if (obj.get("level")) |level_value| {
+        if (level_value == .integer) {
+            node.level = @intCast(level_value.integer);
         }
     }
     
-    // Extract level if present
-    if (std.mem.indexOf(u8, json, "\"level\":")) |level_start| {
-        const level_value_start = level_start + 8;
-        var level_end = level_value_start;
-        while (level_end < json.len and json[level_end] != ',' and json[level_end] != '}') {
-            level_end += 1;
+    // Get children if present
+    if (obj.get("children")) |children_value| {
+        if (children_value == .array) {
+            for (children_value.array.items) |child_value| {
+                const child_node = try allocator.create(Node);
+                child_node.* = try parseJsonValue(allocator, child_value);
+                try node.children.append(child_node);
+            }
         }
-        const level_str = json[level_value_start..level_end];
-        json_node.level = std.fmt.parseInt(u8, level_str, 10) catch null;
     }
     
-    const node = try json_node.toParserNode(allocator);
-    json_node.deinit(allocator);
     return node;
 }
 
@@ -237,4 +244,98 @@ test "render empty document" {
     
     try std.testing.expect(std.mem.indexOf(u8, html, "<!DOCTYPE html>") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "<body>") != null);
+}
+
+test "render heading" {
+    const allocator = std.testing.allocator;
+    
+    var root = Node.init(allocator, .document);
+    defer root.deinit(allocator);
+    
+    const heading = try allocator.create(Node);
+    heading.* = Node.init(allocator, .heading);
+    heading.level = 2;
+    heading.content = try allocator.dupe(u8, "Test Header");
+    
+    try root.children.append(heading);
+    
+    const html = try renderToHtml(allocator, &root);
+    defer allocator.free(html);
+    
+    try std.testing.expect(std.mem.indexOf(u8, html, "<h2>Test Header</h2>") != null);
+}
+
+test "render paragraph with inline formatting" {
+    const allocator = std.testing.allocator;
+    
+    var root = Node.init(allocator, .document);
+    defer root.deinit(allocator);
+    
+    const para = try allocator.create(Node);
+    para.* = Node.init(allocator, .paragraph);
+    
+    const text1 = try allocator.create(Node);
+    text1.* = Node.init(allocator, .text);
+    text1.content = try allocator.dupe(u8, "This is ");
+    
+    const bold = try allocator.create(Node);
+    bold.* = Node.init(allocator, .strong);
+    bold.content = try allocator.dupe(u8, "bold");
+    
+    const text2 = try allocator.create(Node);
+    text2.* = Node.init(allocator, .text);
+    text2.content = try allocator.dupe(u8, " text.");
+    
+    try para.children.append(text1);
+    try para.children.append(bold);
+    try para.children.append(text2);
+    try root.children.append(para);
+    
+    const html = try renderToHtml(allocator, &root);
+    defer allocator.free(html);
+    
+    try std.testing.expect(std.mem.indexOf(u8, html, "<p>This is <strong>bold</strong> text.</p>") != null);
+}
+
+test "jsonAstToHtml integration" {
+    const allocator = std.testing.allocator;
+    
+    const json_ast = 
+        \\{"type":"document","children":[
+        \\{"type":"heading","level":1,"content":"Hello"},
+        \\{"type":"paragraph","children":[
+        \\{"type":"text","content":"This is "},
+        \\{"type":"strong","content":"bold"},
+        \\{"type":"text","content":" text."}
+        \\]}
+        \\]}
+    ;
+    
+    const html = try jsonAstToHtml(allocator, json_ast);
+    defer allocator.free(html);
+    
+    try std.testing.expect(std.mem.indexOf(u8, html, "<h1>Hello</h1>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "<p>This is <strong>bold</strong> text.</p>") != null);
+}
+
+test "code block rendering issue" {
+    const allocator = std.testing.allocator;
+    
+    // Test JSON AST that represents a code block (fenced with ```)
+    const json_ast = 
+        \\{"type":"document","children":[
+        \\{"type":"code_block","content":"const std = @import(\"std\");\nconst markdown_parzer = @import(\"markdown_parzer\");"}
+        \\]}
+    ;
+    
+    const html = try jsonAstToHtml(allocator, json_ast);
+    defer allocator.free(html);
+    
+    // Should contain proper code block
+    try std.testing.expect(std.mem.indexOf(u8, html, "<pre><code>") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "const std = @import(\"std\");") != null);
+    try std.testing.expect(std.mem.indexOf(u8, html, "</code></pre>") != null);
+    
+    // Should NOT contain broken code like <code></code>`
+    try std.testing.expect(std.mem.indexOf(u8, html, "<code></code>`") == null);
 }
