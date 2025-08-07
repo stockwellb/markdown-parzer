@@ -13,9 +13,11 @@
 //! - Parser: Converts tokens to MIR
 //! - HTML renderer: Converts MIR to HTML
 const std = @import("std");
-const lexer = @import("lexer.zig");
-const parser = @import("parser.zig");
-const html = @import("html.zig");
+
+// Public module exports for documentation
+pub const lexer = @import("lexer.zig");
+pub const parser = @import("parser.zig");
+pub const html = @import("html.zig");
 
 // Re-export lexer types for library users
 pub const Token = lexer.Token;
