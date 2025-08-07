@@ -354,32 +354,20 @@ pub fn zonAstToHtmlBody(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8
     return renderToHtmlBody(allocator, &ast);
 }
 
-/// Legacy JSON support (deprecated)
-///
-/// This function exists for backward compatibility but is
-/// deprecated. Use ZON format instead for better integration
-/// with Zig's type system.
-///
-/// @deprecated Use zonAstToHtml() instead
-///
-/// Returns: error.JsonDeprecated always
-pub fn jsonAstToHtml(allocator: std.mem.Allocator, json_ast: []const u8) ![]u8 {
-    return parseJsonAst(allocator, json_ast);
-}
 
-/// Internal AST structure for JSON/ZON deserialization
+/// Internal AST structure for ZON deserialization
 ///
 /// This intermediate structure is used when parsing serialized
 /// AST data. It differs from the main Node struct in that it
 /// uses slices instead of ArrayLists for children.
-const JsonAstNode = struct {
+const ZonAstNode = struct {
     type: NodeType,
     content: ?[]const u8 = null,
     level: ?u8 = null,
-    children: []JsonAstNode = &[_]JsonAstNode{},
+    children: []ZonAstNode = &[_]ZonAstNode{},
 
-    /// Free resources owned by this JSON AST node
-    fn deinit(self: *JsonAstNode, allocator: std.mem.Allocator) void {
+    /// Free resources owned by this ZON AST node
+    fn deinit(self: *ZonAstNode, allocator: std.mem.Allocator) void {
         if (self.content) |content| {
             allocator.free(content);
         }
@@ -391,8 +379,8 @@ const JsonAstNode = struct {
         }
     }
 
-    /// Convert JSON AST node to parser Node structure
-    fn toParserNode(self: *const JsonAstNode, allocator: std.mem.Allocator) !Node {
+    /// Convert ZON AST node to parser Node structure
+    fn toParserNode(self: *const ZonAstNode, allocator: std.mem.Allocator) !Node {
         var node = Node.init(allocator, self.type);
 
         if (self.content) |content| {
@@ -425,8 +413,7 @@ const ZonAstInput = struct {
 /// Parse a ZON-formatted AST string into a Node structure
 ///
 /// Uses Zig's built-in ZON parser to deserialize the AST.
-/// The ZON format preserves enum types and structure better
-/// than JSON.
+/// The ZON format preserves enum types and structure natively.
 ///
 /// Parameters:
 ///   - allocator: Memory allocator for the Node
@@ -482,20 +469,6 @@ fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
     return node;
 }
 
-/// Parse JSON AST (deprecated)
-///
-/// JSON support is deprecated in favor of ZON format.
-/// This function always returns an error.
-///
-/// @deprecated Use parseZonAst() instead
-///
-/// Returns: error.JsonDeprecated always
-fn parseJsonAst(allocator: std.mem.Allocator, json: []const u8) ![]u8 {
-    // Legacy JSON support - deprecated, use ZON instead
-    _ = json;
-    _ = allocator;
-    return error.JsonDeprecated;
-}
 
 test "render empty document" {
     const allocator = std.testing.allocator;
@@ -561,38 +534,58 @@ test "render paragraph with inline formatting" {
     try std.testing.expect(std.mem.indexOf(u8, html, "<p>This is <strong>bold</strong> text.</p>") != null);
 }
 
-test "jsonAstToHtml integration" {
+test "zonAstToHtml integration" {
     const allocator = std.testing.allocator;
 
-    const json_ast =
-        \\{"type":"document","children":[
-        \\{"type":"heading","level":1,"content":"Hello"},
-        \\{"type":"paragraph","children":[
-        \\{"type":"text","content":"This is "},
-        \\{"type":"strong","content":"bold"},
-        \\{"type":"text","content":" text."}
-        \\]}
-        \\]}
+    const zon_ast =
+        \\.{
+        \\    .type = .document,
+        \\    .children = .{
+        \\        .{ .type = .heading, .level = 1, .content = "Hello", .children = .{} },
+        \\        .{
+        \\            .type = .paragraph,
+        \\            .content = null,
+        \\            .level = null,
+        \\            .children = .{
+        \\                .{ .type = .text, .content = "This is ", .level = null, .children = .{} },
+        \\                .{ .type = .strong, .content = "bold", .level = null, .children = .{} },
+        \\                .{ .type = .text, .content = " text.", .level = null, .children = .{} },
+        \\            },
+        \\        },
+        \\    },
+        \\    .content = null,
+        \\    .level = null,
+        \\}
     ;
 
-    const html = try jsonAstToHtml(allocator, json_ast);
+    const html = try zonAstToHtml(allocator, zon_ast);
     defer allocator.free(html);
 
     try std.testing.expect(std.mem.indexOf(u8, html, "<h1>Hello</h1>") != null);
     try std.testing.expect(std.mem.indexOf(u8, html, "<p>This is <strong>bold</strong> text.</p>") != null);
 }
 
-test "code block rendering issue" {
+test "code block rendering with ZON" {
     const allocator = std.testing.allocator;
 
-    // Test JSON AST that represents a code block (fenced with ```)
-    const json_ast =
-        \\{"type":"document","children":[
-        \\{"type":"code_block","content":"const std = @import(\"std\");\nconst markdown_parzer = @import(\"markdown_parzer\");"}
-        \\]}
+    // Test ZON AST that represents a code block (fenced with ```)
+    const zon_ast =
+        \\.{
+        \\    .type = .document,
+        \\    .children = .{
+        \\        .{
+        \\            .type = .code_block,
+        \\            .content = "const std = @import(\"std\");\nconst markdown_parzer = @import(\"markdown_parzer\");",
+        \\            .level = null,
+        \\            .children = .{},
+        \\        },
+        \\    },
+        \\    .content = null,
+        \\    .level = null,
+        \\}
     ;
 
-    const html = try jsonAstToHtml(allocator, json_ast);
+    const html = try zonAstToHtml(allocator, zon_ast);
     defer allocator.free(html);
 
     // Should contain proper code block

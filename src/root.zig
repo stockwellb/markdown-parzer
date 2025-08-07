@@ -22,7 +22,6 @@ pub const renderNode = html.renderNode;
 pub const zonAstToHtml = html.zonAstToHtml;
 pub const zonAstToHtmlWithTemplate = html.zonAstToHtmlWithTemplate;
 pub const zonAstToHtmlBody = html.zonAstToHtmlBody;
-pub const jsonAstToHtml = html.jsonAstToHtml; // Legacy support
 pub const default_html_template = html.default_html_template;
 
 /// Tokenize a markdown string and return all tokens
