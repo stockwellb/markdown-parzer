@@ -8,19 +8,19 @@ This is a modular Markdown parser written in Zig following a **library-first des
 
 **Core Architecture Pattern:**
 ```
-Input Markdown → [LEX] → ZON Tokens → [PARSE] → ZON AST → [RENDER] → Output HTML
+Input Markdown → [LEX] → ZON Tokens → [PARSE] → ZON MIR → [RENDER] → Output HTML
 ```
 
 **Structure:**
 - **Library Core (`src/`)**: All parsing logic as reusable modules
   - `root.zig` - Public API and library interface
   - `lexer.zig` - Complete tokenization engine with comprehensive test coverage
-  - `parser.zig` - Complete AST generation engine with full Markdown support
+  - `parser.zig` - Complete MIR generation engine with full Markdown support
   - `html.zig` - HTML rendering engine
 - **CLI Pipeline (`cmd/`)**: Unix-style composable tools
   - `cmd/lex/` - Tokenizer (markdown → ZON tokens)
-  - `cmd/parse/` - Parser (tokens → ZON AST)  
-  - `cmd/html/` - HTML renderer (AST → HTML)
+  - `cmd/parse/` - Parser (tokens → ZON MIR)  
+  - `cmd/html/` - HTML renderer (MIR → HTML)
 
 ## Build Commands
 
@@ -55,14 +55,14 @@ lex < input.md | parse | html > output.html
 
 # Individual stages
 echo "# Hello" | ./zig-out/bin/lex     # → ZON tokens
-echo "# Hello" | lex | ./zig-out/bin/parse  # → ZON AST  
+echo "# Hello" | lex | ./zig-out/bin/parse  # → ZON MIR  
 echo "# Hello" | lex | parse | ./zig-out/bin/html  # → HTML
 ```
 
 **Commands:**
 - `lex` - Tokenizes markdown into ZON tokens
-- `parse` - Converts tokens into ZON Abstract Syntax Tree (AST)
-- `html` - Renders AST to HTML with template support:
+- `parse` - Converts tokens into ZON Markdown Intermediate Representation (MIR)
+- `html` - Renders MIR to HTML with template support:
   - Default mode: `html` (uses built-in HTML5 template)
   - Custom template: `html template.html` (uses custom template file)
   - Body only: `html --body-only` (outputs content without HTML wrapper)
@@ -91,36 +91,36 @@ The system implements a classic compiler pipeline with discrete, composable stag
    - Key types: `Token`, `TokenType`, `Tokenizer`
 
 2. **Parser** (`src/parser.zig`):
-   - **Complete Implementation**: Full AST generation for all major Markdown elements including headings, paragraphs, lists, fenced code blocks, emphasis, strong, inline code, and text
+   - **Complete Implementation**: Full MIR generation for all major Markdown elements including headings, paragraphs, lists, fenced code blocks, emphasis, strong, inline code, and text
    - **Advanced Features**: Supports nested inline formatting (e.g., **`code`** renders as `<strong><code>code</code></strong>`)
    - **Tree Structure**: Parent-child relationships for nested elements with proper hierarchy
    - **Robust Parsing**: Handles all implemented Markdown elements with proper fallback for unrecognized tokens
-   - **Memory Safety**: Proper allocation/deallocation with content cleanup in `Node.deinit()`
+   - **Memory Safety**: Proper allocation/deallocation with content cleanup in `Mir.deinit()`
    - **Loop Prevention**: Intelligent advancement logic prevents infinite loops on edge cases
-   - **Optional Fields**: Flexible schema for different node types (`level` for headings, `content` for text/code)
+   - **Optional Fields**: Flexible schema for different MIR types (`level` for headings, `content` for text/code)
    - **ZON Integration**: Proper ZON escaping for special characters in code blocks and text content
-   - Key types: `Node`, `NodeType`, `Parser`
+   - Key types: `Mir`, `MirType`, `Parser`
 
 3. **HTML Renderer** (`src/html.zig`):
    - **Writer-based**: Works with any output stream using `anytype` writer
    - **Recursive Processing**: Handles nested document structures and inline formatting
-   - **ZON Bridge**: Converts ZON AST back to native structures for rendering using `std.zon.parse.fromSlice`
+   - **ZON Bridge**: Converts ZON MIR back to native structures for rendering using `std.zon.parse.fromSlice`
    - **Complete Element Support**: Renders all implemented Markdown elements (headings, paragraphs, lists, code blocks, emphasis, strong, inline code)
    - **Nested Formatting**: Properly handles complex nested structures like strong text containing code elements
 
 4. **Library Interface** (`src/root.zig`):
    - **Clean API**: Re-exports all public types and functions
    - **High-level Functions**: `tokenize()` for complete tokenization, `printTokens()` for debugging
-   - **ZON Serialization**: `tokensToZon()` for token serialization, `astToZon()` for AST serialization
+   - **ZON Serialization**: `tokensToZon()` for token serialization, `mirToZon()` for MIR serialization
    - **HTML Rendering**: `renderToHtml()`, `renderToHtmlWithTemplate()`, `renderToHtmlBody()` for flexible HTML output
-   - **ZON Bridge Functions**: `zonAstToHtml()`, `zonAstToHtmlWithTemplate()`, `zonAstToHtmlBody()` for direct ZON processing
+   - **ZON Bridge Functions**: `zonMirToHtml()`, `zonMirToHtmlWithTemplate()`, `zonMirToHtmlBody()` for direct ZON processing
    - **Template System**: `default_html_template` constant and template placeholder support
    - **Component Access**: Direct access to `Tokenizer`, `Parser`, and HTML rendering functions
    - **Dependency Graph**: `root.zig` → `lexer.zig`, `parser.zig`, `html.zig`
 
 ### **Data Flow & Dependencies**
 ```
-Raw Markdown → Token Stream (ZON) → AST (ZON) → Target Format
+Raw Markdown → Token Stream (ZON) → MIR (ZON) → Target Format
      ↓              ↓                  ↓              ↓
    lexer.zig    cmd/lex/         cmd/parse/     cmd/html/
 ```
@@ -133,9 +133,9 @@ Raw Markdown → Token Stream (ZON) → AST (ZON) → Target Format
 ## Development Notes & Conventions
 
 ### **Code Quality & Conventions**
-- **Naming**: PascalCase types (`TokenType`), camelCase functions (`renderNode`), snake_case files
+- **Naming**: PascalCase types (`TokenType`), camelCase functions (`renderMir`), snake_case files
 - **Memory Management**: Explicit allocator patterns with proper deinit/destroy cleanup
-- **Error Handling**: Zig's error union types throughout (`![]Token`, `!*Node`)
+- **Error Handling**: Zig's error union types throughout (`![]Token`, `!*Mir`)
 - **Testing**: Embedded `test` blocks in each module with comprehensive coverage
 
 ### **Testing Architecture**
@@ -145,8 +145,8 @@ Raw Markdown → Token Stream (ZON) → AST (ZON) → Target Format
 - **Build Integration**: Parallel test execution across library and CLI components
 
 ### **Extension Points**
-- **Parser Enhancements**: Add parsing logic for tables, blockquotes, horizontal rules, images, links (node types already defined, HTML rendering implemented)
-- **New Output Formats**: Add `cmd/pdf/`, `cmd/latex/` etc. that consume ZON AST
+- **Parser Enhancements**: Add parsing logic for tables, blockquotes, horizontal rules, images, links (MIR types already defined, HTML rendering implemented)
+- **New Output Formats**: Add `cmd/pdf/`, `cmd/latex/` etc. that consume ZON MIR
 - **Advanced Template Features**: Template variables, conditional rendering, loops, includes
 - **Enhanced HTML Rendering**: Syntax highlighting for code blocks, custom CSS classes, accessibility features
 - **External Integration**: ZON pipeline enables integration with other languages/tools
@@ -224,7 +224,7 @@ The parser includes specialized functions for different Markdown constructs:
 ## Parser Implementation Details
 
 ### **Core Parsing Architecture**
-The parser implements a recursive descent parser that converts token streams into a structured AST:
+The parser implements a recursive descent parser that converts token streams into a structured MIR:
 
 **Parsing Stages:**
 1. **Block-level Parsing**: `parseBlock()` identifies and parses headings, paragraphs
@@ -242,7 +242,7 @@ The parser implements a recursive descent parser that converts token streams int
 - **Text**: All other content preserved as text nodes
 - **Nested Formatting**: Complex combinations like strong text containing code elements
 
-**NodeType Enum Values** (defined but not all fully implemented):
+**MirType Enum Values** (defined but not all fully implemented):
 - `document`, `heading`, `paragraph`, `text`
 - `emphasis`, `strong`, `code`, `code_block`
 - `list`, `list_item`
@@ -251,17 +251,17 @@ The parser implements a recursive descent parser that converts token streams int
 
 ### **Parser Architecture Pattern**
 ```
-Token Stream → parseBlock() → Block Nodes (heading, paragraph, list, code_block)
+Token Stream → parseBlock() → Block Mirs (heading, paragraph, list, code_block)
                     ↓
-              parseInline() → Inline Nodes (text, emphasis, strong, code)
+              parseInline() → Inline Mirs (text, emphasis, strong, code)
                     ↓              ↓
             parseInlineSimple() → Nested Elements (code within strong)
                     ↓
-              ZON AST Output
+              ZON MIR Output
 ```
 
 **Key Implementation Features:**
-- **Memory Safety**: Proper `Node.deinit()` recursively frees content and children
+- **Memory Safety**: Proper `Mir.deinit()` recursively frees content and children
 - **Loop Prevention**: Smart advancement logic prevents infinite loops on unrecognized tokens
 - **Fallback Handling**: Unmatched emphasis/code falls back to literal text
 - **Position Tracking**: Maintains token position information through parsing
@@ -293,9 +293,9 @@ The HTML renderer supports flexible template systems for custom document structu
 - `renderToHtmlBody()` - Renders content only, no HTML wrapper
 
 **ZON Integration Functions:**
-- `zonAstToHtml()` - ZON to HTML with default template
-- `zonAstToHtmlWithTemplate()` - ZON to HTML with custom template
-- `zonAstToHtmlBody()` - ZON to HTML body only
+- `zonMirToHtml()` - ZON to HTML with default template
+- `zonMirToHtmlWithTemplate()` - ZON to HTML with custom template
+- `zonMirToHtmlBody()` - ZON to HTML body only
 
 ### **CLI Template Support**
 
@@ -349,14 +349,14 @@ The library provides first-class support for ZON serialization through dedicated
    - Handles all token types with proper enum serialization
    - Used by the `lex` CLI command for output
 
-2. **AST Serialization** (`astToZon()`):
-   - Converts recursive Node structures to ZON format
-   - Uses `SerializableNode` intermediate representation to handle recursive types
+2. **MIR Serialization** (`mirToZon()`):
+   - Converts recursive Mir structures to ZON format
+   - Uses `SerializableMir` intermediate representation to handle recursive types
    - Employs `std.zon.stringify.serializeArbitraryDepth()` for deep nesting
    - Used by the `parse` CLI command for output
 
-3. **SerializableNode Structure**:
-   - Intermediate representation that converts `std.ArrayList(*Node)` to slices
+3. **SerializableMir Structure**:
+   - Intermediate representation that converts `std.ArrayList(*Mir)` to slices
    - Required because ZON stringify cannot directly serialize ArrayLists
    - Maintains all node properties (type, content, level, children)
    - Properly manages memory allocation and deallocation
@@ -409,41 +409,41 @@ defer allocator.free(zon_tokens);
 
 // Direct parser usage
 var parser = markdown_parzer.Parser.init(allocator, tokens);
-const ast = try parser.parse();
+const mir = try parser.parse();
 defer {
-    ast.deinit(allocator);
-    allocator.destroy(ast);
+    mir.deinit(allocator);
+    allocator.destroy(mir);
 }
 
-// Serialize AST to ZON
-const zon_ast = try markdown_parzer.astToZon(allocator, ast);
-defer allocator.free(zon_ast);
+// Serialize MIR to ZON
+const zon_mir = try markdown_parzer.mirToZon(allocator, mir);
+defer allocator.free(zon_mir);
 
 // HTML rendering with default template
-const html = try markdown_parzer.renderToHtml(allocator, ast);
+const html = try markdown_parzer.renderToHtml(allocator, mir);
 defer allocator.free(html);
 
 // HTML rendering with custom template
 const custom_template = "<html><body>{content}</body></html>";
-const custom_html = try markdown_parzer.renderToHtmlWithTemplate(allocator, ast, custom_template);
+const custom_html = try markdown_parzer.renderToHtmlWithTemplate(allocator, mir, custom_template);
 defer allocator.free(custom_html);
 
 // Body-only rendering (no HTML wrapper)
-const body_only = try markdown_parzer.renderToHtmlBody(allocator, ast);
+const body_only = try markdown_parzer.renderToHtmlBody(allocator, mir);
 defer allocator.free(body_only);
 
 // Direct ZON to HTML conversion with templates
-const html_from_zon = try markdown_parzer.zonAstToHtml(allocator, zon_ast);
+const html_from_zon = try markdown_parzer.zonMirToHtml(allocator, zon_mir);
 defer allocator.free(html_from_zon);
 
-const custom_from_zon = try markdown_parzer.zonAstToHtmlWithTemplate(allocator, zon_ast, custom_template);
+const custom_from_zon = try markdown_parzer.zonMirToHtmlWithTemplate(allocator, zon_mir, custom_template);
 defer allocator.free(custom_from_zon);
 
-const zon_body_only = try markdown_parzer.zonAstToHtmlBody(allocator, zon_ast);
+const zon_body_only = try markdown_parzer.zonMirToHtmlBody(allocator, zon_mir);
 defer allocator.free(zon_body_only);
 ```
 
-### **ZON AST Structure**
+### **ZON MIR Structure**
 The parser produces clean, hierarchical ZON with proper nesting (using enum types, not strings):
 ```zig
 .{

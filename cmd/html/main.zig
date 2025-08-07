@@ -31,20 +31,20 @@ pub fn main() !void {
         }
     }
 
-    // Read ZON AST from stdin
+    // Read ZON MIR from stdin
     const zon_input = try std.fs.File.stdin().readToEndAlloc(allocator, std.math.maxInt(usize));
     defer allocator.free(zon_input);
 
-    // Convert ZON AST to HTML using the library
+    // Convert ZON MIR to HTML using the library
     const html = if (template) |tmpl| blk: {
         if (tmpl.len == 0) {
             // Body-only mode
-            break :blk try markdown_parzer.zonAstToHtmlBody(allocator, zon_input);
+            break :blk try markdown_parzer.zonMirToHtmlBody(allocator, zon_input);
         } else {
             // Custom template mode
-            break :blk try markdown_parzer.zonAstToHtmlWithTemplate(allocator, zon_input, tmpl);
+            break :blk try markdown_parzer.zonMirToHtmlWithTemplate(allocator, zon_input, tmpl);
         }
-    } else try markdown_parzer.zonAstToHtml(allocator, zon_input);
+    } else try markdown_parzer.zonMirToHtml(allocator, zon_input);
     
     defer allocator.free(html);
 

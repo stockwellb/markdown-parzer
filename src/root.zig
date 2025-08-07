@@ -1,4 +1,17 @@
 //! markdown_parzer library - A Markdown lexer and parser for Zig
+//!
+//! This library converts Markdown text into a Markdown Intermediate Representation (MIR)
+//! tree structure, which can then be rendered to various output formats like HTML.
+//!
+//! The library follows a clean pipeline architecture:
+//! Markdown Text → Tokens → MIR → HTML/Other Formats
+//!
+//! Core types:
+//! - Mir: The intermediate representation node structure
+//! - MirType: Enum of all supported Markdown elements
+//! - Token/TokenType: Lexer output types
+//! - Parser: Converts tokens to MIR
+//! - HTML renderer: Converts MIR to HTML
 const std = @import("std");
 const lexer = @import("lexer.zig");
 const parser = @import("parser.zig");
@@ -10,8 +23,8 @@ pub const TokenType = lexer.TokenType;
 pub const Tokenizer = lexer.Tokenizer;
 
 // Re-export parser types for library users
-pub const Node = parser.Node;
-pub const NodeType = parser.NodeType;
+pub const Mir = parser.Mir;
+pub const MirType = parser.MirType;
 pub const Parser = parser.Parser;
 
 // Re-export HTML renderer functions for library users
@@ -19,9 +32,9 @@ pub const renderToHtml = html.renderToHtml;
 pub const renderToHtmlWithTemplate = html.renderToHtmlWithTemplate;
 pub const renderToHtmlBody = html.renderToHtmlBody;
 pub const renderNode = html.renderNode;
-pub const zonAstToHtml = html.zonAstToHtml;
-pub const zonAstToHtmlWithTemplate = html.zonAstToHtmlWithTemplate;
-pub const zonAstToHtmlBody = html.zonAstToHtmlBody;
+pub const zonMirToHtml = html.zonMirToHtml;
+pub const zonMirToHtmlWithTemplate = html.zonMirToHtmlWithTemplate;
+pub const zonMirToHtmlBody = html.zonMirToHtmlBody;
 pub const default_html_template = html.default_html_template;
 
 /// Tokenize a markdown string and return all tokens
@@ -66,22 +79,22 @@ pub fn tokensToZon(allocator: std.mem.Allocator, tokens: []const Token) ![]u8 {
     return allocator.dupe(u8, aw.getWritten());
 }
 
-// Serializable representation of Node for ZON output
-const SerializableNode = struct {
-    type: NodeType,
+// Serializable representation of Mir for ZON output
+const SerializableMir = struct {
+    type: MirType,
     content: ?[]const u8 = null,
     level: ?u8 = null,
-    children: []SerializableNode = &[_]SerializableNode{},
+    children: []SerializableMir = &[_]SerializableMir{},
     
-    fn fromNode(allocator: std.mem.Allocator, node: *const Node) !SerializableNode {
-        var children = std.ArrayList(SerializableNode).init(allocator);
+    fn fromMir(allocator: std.mem.Allocator, node: *const Mir) !SerializableMir {
+        var children = std.ArrayList(SerializableMir).init(allocator);
         defer children.deinit();
         
         for (node.children.items) |child| {
-            try children.append(try fromNode(allocator, child));
+            try children.append(try fromMir(allocator, child));
         }
         
-        return SerializableNode{
+        return SerializableMir{
             .type = node.type,
             .content = node.content,
             .level = node.level,
@@ -89,7 +102,7 @@ const SerializableNode = struct {
         };
     }
     
-    fn deinit(self: *SerializableNode, allocator: std.mem.Allocator) void {
+    fn deinit(self: *SerializableMir, allocator: std.mem.Allocator) void {
         for (self.children) |*child| {
             child.deinit(allocator);
         }
@@ -99,9 +112,9 @@ const SerializableNode = struct {
     }
 };
 
-/// Serialize AST to ZON format  
-pub fn astToZon(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
-    var serializable = try SerializableNode.fromNode(allocator, ast);
+/// Serialize Mir to ZON format  
+pub fn mirToZon(allocator: std.mem.Allocator, mir: *const Mir) ![]u8 {
+    var serializable = try SerializableMir.fromMir(allocator, mir);
     defer serializable.deinit(allocator);
     
     var aw: std.Io.Writer.Allocating = .init(allocator);

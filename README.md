@@ -7,7 +7,7 @@ A modular Markdown parser written in Zig, designed as a Unix-style pipeline of c
 The parser follows a three-stage pipeline architecture using ZON (Zig Object Notation) as the intermediate format:
 
 ```
-Input Markdown → [LEX] → ZON Tokens → [PARSE] → ZON AST → [RENDER] → Output HTML
+Input Markdown → [LEX] → ZON Tokens → [PARSE] → ZON MIR → [RENDER] → Output HTML
 ```
 
 Each stage is a separate executable that reads from stdin and writes to stdout, allowing for flexible composition and debugging. The use of ZON provides type-safe, native Zig data exchange between pipeline stages.
@@ -30,25 +30,25 @@ pub fn main() !void {
     const tokens = try markdown_parzer.tokenize(allocator, markdown);
     defer allocator.free(tokens);
 
-    // Parse tokens into AST
+    // Parse tokens into MIR
     var parser = markdown_parzer.Parser.init(allocator, tokens);
-    const ast = try parser.parse();
+    const mir = try parser.parse();
     defer {
-        ast.deinit(allocator);
-        allocator.destroy(ast);
+        mir.deinit(allocator);
+        allocator.destroy(mir);
     }
 
     // Render to HTML with default template
-    const html = try markdown_parzer.renderToHtml(allocator, ast);
+    const html = try markdown_parzer.renderToHtml(allocator, mir);
     defer allocator.free(html);
     
     // Or use custom template
     const custom_template = "<html><body>{content}</body></html>";
-    const custom_html = try markdown_parzer.renderToHtmlWithTemplate(allocator, ast, custom_template);
+    const custom_html = try markdown_parzer.renderToHtmlWithTemplate(allocator, mir, custom_template);
     defer allocator.free(custom_html);
     
     // Or render body only (no HTML wrapper)
-    const body_only = try markdown_parzer.renderToHtmlBody(allocator, ast);
+    const body_only = try markdown_parzer.renderToHtmlBody(allocator, mir);
     defer allocator.free(body_only);
 
     // Or work with tokenizer directly
@@ -66,16 +66,16 @@ pub fn main() !void {
 - `Tokenizer` - Core lexical analyzer with advanced non-printing character detection
 - `tokenize()` - High-level function to tokenize markdown and return all tokens
 - `tokensToZon()` - Serialize tokens to ZON format for pipeline interchange
-- `Parser` - Complete AST builder with support for all major Markdown elements
-- `astToZon()` - Serialize AST to ZON format for pipeline interchange
+- `Parser` - Complete MIR builder with support for all major Markdown elements
+- `mirToZon()` - Serialize MIR to ZON format for pipeline interchange
 
 **HTML Rendering:**
-- `renderToHtml()` - Render AST to HTML with default template
-- `renderToHtmlWithTemplate()` - Render AST to HTML with custom template
-- `renderToHtmlBody()` - Render AST content only (no HTML wrapper)
-- `zonAstToHtml()` - Convert ZON AST to HTML with default template
-- `zonAstToHtmlWithTemplate()` - Convert ZON AST to HTML with custom template
-- `zonAstToHtmlBody()` - Convert ZON AST to content only
+- `renderToHtml()` - Render MIR to HTML with default template
+- `renderToHtmlWithTemplate()` - Render MIR to HTML with custom template
+- `renderToHtmlBody()` - Render MIR content only (no HTML wrapper)
+- `zonMirToHtml()` - Convert ZON MIR to HTML with default template
+- `zonMirToHtmlWithTemplate()` - Convert ZON MIR to HTML with custom template
+- `zonMirToHtmlBody()` - Convert ZON MIR to content only
 - `default_html_template` - Built-in HTML5 template constant
 - `printTokens()` - Debug utility to display tokens in human-readable format
 
@@ -84,8 +84,8 @@ pub fn main() !void {
 For debugging and pipeline composition, each stage is available as a standalone tool:
 
 - **`lex`** - Tokenizes markdown text into categorized ZON tokens
-- **`parse`** - Converts tokens into a ZON Abstract Syntax Tree (AST)
-- **`html`** - Renders ZON AST to HTML output with template support:
+- **`parse`** - Converts tokens into a ZON Markdown Intermediate Representation (MIR)
+- **`html`** - Renders ZON MIR to HTML output with template support:
   - `html` - Uses built-in HTML5 template
   - `html template.html` - Uses custom template file with `{content}` placeholder
   - `html --body-only` - Outputs content only (no HTML wrapper)
@@ -96,7 +96,7 @@ echo "# Hello *World*" | lex | parse | html
 
 # Individual stages for debugging
 echo "# Hello" | lex                    # See raw tokens
-echo "# Hello" | lex | parse            # See AST structure
+echo "# Hello" | lex | parse            # See MIR structure
 ```
 
 ## Features
@@ -123,11 +123,11 @@ echo "# Hello" | lex | parse            # See AST structure
 - **Text nodes** with proper whitespace handling
 - **Nested inline formatting** - e.g., bold text containing inline code works correctly
 - **Memory-safe** with proper allocation/deallocation
-- **ZON AST output** for type-safe data exchange
+- **ZON MIR output** for type-safe data exchange
 
 ### HTML Renderer
 
-- **Complete HTML generation** from ZON AST
+- **Complete HTML generation** from ZON MIR
 - **All Markdown elements supported**
 - **Headings** (h1 through h6 tags)
 - **Paragraphs** (p tags)
@@ -161,7 +161,7 @@ zig build -Doptimize=ReleaseSafe     # Optimize with safety checks
 This creates executables in `zig-out/bin/`:
 
 - `lex` - Lexical analyzer (outputs ZON tokens)
-- `parse` - Parser (outputs ZON AST)
+- `parse` - Parser (outputs ZON MIR)
 - `html` - HTML renderer with template support
 
 ## HTML Template System
@@ -229,7 +229,7 @@ echo "# Hello **World**" | ./zig-out/bin/lex | ./zig-out/bin/parse | ./zig-out/b
 # View tokens (ZON format)
 echo "# Hello" | ./zig-out/bin/lex
 
-# View AST (ZON format)
+# View MIR (ZON format)
 echo "# Hello" | ./zig-out/bin/lex | ./zig-out/bin/parse
 ```
 
@@ -253,14 +253,14 @@ The project uses ZON (Zig Object Notation) instead of JSON for data interchange 
 - **Performance**: Zero-copy parsing with `std.zon.parse.fromSlice()`
 - **Readability**: Familiar Zig struct syntax
 
-Example ZON AST output shows the hierarchical structure with enum types for node types, null values for unused fields, and nested children arrays.
+Example ZON MIR output shows the hierarchical structure with enum types for node types, null values for unused fields, and nested children arrays.
 
 
 ## Project Status
 
 ### ✅ Completed
 - **Lexer**: Full tokenization with 39+ token types
-- **Parser**: Complete AST generation for all major Markdown elements
+- **Parser**: Complete MIR generation for all major Markdown elements
 - **HTML Renderer**: Full HTML output with nested element support
 - **Template System**: Custom HTML templates with `{content}` placeholder support
 - **CLI Template Support**: Default, custom template, and body-only modes

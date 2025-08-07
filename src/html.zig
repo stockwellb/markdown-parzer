@@ -1,6 +1,6 @@
-//! HTML renderer for Markdown AST
+//! HTML renderer for Markdown MIR
 //!
-//! This module converts parsed Markdown AST nodes into HTML output.
+//! This module converts parsed Markdown MIR nodes into HTML output.
 //! It supports multiple rendering modes including full HTML documents
 //! with templates, custom templates, and body-only rendering.
 //!
@@ -9,7 +9,7 @@
 //! - Custom template support with {content} placeholder
 //! - Body-only rendering for embedding in existing pages
 //! - Recursive rendering of nested elements
-//! - ZON AST deserialization and rendering
+//! - ZON MIR deserialization and rendering
 //!
 //! ## Rendering Modes
 //! 1. **Default Template**: Modern HTML5 with viewport meta tags
@@ -19,20 +19,20 @@
 //! ## Usage
 //! ```zig
 //! // Default template
-//! const html = try renderToHtml(allocator, ast);
+//! const html = try renderToHtml(allocator, mir);
 //!
 //! // Custom template
-//! const custom = try renderToHtmlWithTemplate(allocator, ast, template);
+//! const custom = try renderToHtmlWithTemplate(allocator, mir, template);
 //!
 //! // Body only
-//! const body = try renderToHtmlBody(allocator, ast);
+//! const body = try renderToHtmlBody(allocator, mir);
 //! ```
 
 const std = @import("std");
 const parser = @import("parser.zig");
 
-const Node = parser.Node;
-const NodeType = parser.NodeType;
+const Mir = parser.Mir;
+const MirType = parser.MirType;
 
 /// Default HTML5 template with modern meta tags
 ///
@@ -58,26 +58,26 @@ pub const default_html_template =
     \\
 ;
 
-/// Convert an AST node to HTML with default template
+/// Convert an MIR node to HTML with default template
 ///
-/// Renders the AST into a complete HTML5 document using the
+/// Renders the MIR into a complete HTML5 document using the
 /// built-in default template. This is the simplest way to
 /// generate a complete, standalone HTML file.
 ///
 /// Parameters:
 ///   - allocator: Memory allocator for the HTML string
-///   - ast: The root AST node to render
+///   - mir: The root MIR node to render
 ///
 /// Returns: Complete HTML document as a string
 ///
 /// Error: Returns error.OutOfMemory if allocation fails
-pub fn renderToHtml(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
-    return renderToHtmlWithTemplate(allocator, ast, default_html_template);
+pub fn renderToHtml(allocator: std.mem.Allocator, mir: *const Mir) ![]u8 {
+    return renderToHtmlWithTemplate(allocator, mir, default_html_template);
 }
 
-/// Convert an AST node to HTML with custom template
+/// Convert an MIR node to HTML with custom template
 ///
-/// Renders the AST into HTML and inserts it into a custom template
+/// Renders the MIR into HTML and inserts it into a custom template
 /// at the {content} placeholder location. If no placeholder is found,
 /// returns just the rendered content.
 ///
@@ -96,15 +96,15 @@ pub fn renderToHtml(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
 ///
 /// Parameters:
 ///   - allocator: Memory allocator for the HTML string
-///   - ast: The root AST node to render
+///   - mir: The root MIR node to render
 ///   - template: HTML template with {content} placeholder
 ///
 /// Returns: HTML document with content inserted into template
 ///
 /// Error: Returns error.OutOfMemory if allocation fails
-pub fn renderToHtmlWithTemplate(allocator: std.mem.Allocator, ast: *const Node, template: []const u8) ![]u8 {
+pub fn renderToHtmlWithTemplate(allocator: std.mem.Allocator, mir: *const Mir, template: []const u8) ![]u8 {
     // First render the content
-    const content = try renderToHtmlBody(allocator, ast);
+    const content = try renderToHtmlBody(allocator, mir);
     defer allocator.free(content);
 
     // Find {content} placeholder in template
@@ -124,7 +124,7 @@ pub fn renderToHtmlWithTemplate(allocator: std.mem.Allocator, ast: *const Node, 
     }
 }
 
-/// Convert an AST node to HTML body content only
+/// Convert an MIR node to HTML body content only
 ///
 /// Renders just the Markdown content as HTML without any document
 /// wrapper. Perfect for embedding Markdown content into existing
@@ -132,23 +132,23 @@ pub fn renderToHtmlWithTemplate(allocator: std.mem.Allocator, ast: *const Node, 
 ///
 /// Parameters:
 ///   - allocator: Memory allocator for the HTML string
-///   - ast: The root AST node to render
+///   - mir: The root MIR node to render
 ///
 /// Returns: HTML content without document wrapper
 ///
 /// Error: Returns error.OutOfMemory if allocation fails
-pub fn renderToHtmlBody(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
+pub fn renderToHtmlBody(allocator: std.mem.Allocator, mir: *const Mir) ![]u8 {
     var html = std.ArrayList(u8).init(allocator);
     const writer = html.writer();
 
-    try renderNode(writer, ast);
+    try renderNode(writer, mir);
 
     return html.toOwnedSlice();
 }
 
-/// Render a single AST node to HTML writer
+/// Render a single MIR node to HTML writer
 ///
-/// Recursively renders an AST node and all its children to the
+/// Recursively renders an MIR node and all its children to the
 /// provided writer. This is the core rendering function that
 /// handles all node types and their HTML representations.
 ///
@@ -170,10 +170,10 @@ pub fn renderToHtmlBody(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
 ///
 /// Parameters:
 ///   - writer: Any writer that implements the Writer interface
-///   - node: The AST node to render
+///   - node: The MIR node to render
 ///
 /// Error: Returns writer errors if writing fails
-pub fn renderNode(writer: anytype, node: *const Node) !void {
+pub fn renderNode(writer: anytype, node: *const Mir) !void {
     switch (node.type) {
         .document => {
             for (node.children.items) |child| {
@@ -271,7 +271,7 @@ pub fn renderNode(writer: anytype, node: *const Node) !void {
             try writer.print("<hr>\n", .{});
         },
         .link => {
-            // TODO: Handle link URL and text properly from AST
+            // TODO: Handle link URL and text properly from MIR
             try writer.print("<a href=\"#\">", .{});
             if (node.content) |content| {
                 try writer.print("{s}", .{content});
@@ -282,7 +282,7 @@ pub fn renderNode(writer: anytype, node: *const Node) !void {
             try writer.print("</a>", .{});
         },
         .image => {
-            // TODO: Handle image URL and alt text properly from AST
+            // TODO: Handle image URL and alt text properly from MIR
             try writer.print("<img src=\"#\" alt=\"", .{});
             if (node.content) |content| {
                 try writer.print("{s}", .{content});
@@ -292,82 +292,82 @@ pub fn renderNode(writer: anytype, node: *const Node) !void {
     }
 }
 
-/// Parse ZON AST and render to HTML with default template
+/// Parse ZON MIR and render to HTML with default template
 ///
-/// Convenience function that deserializes a ZON-formatted AST
+/// Convenience function that deserializes a ZON-formatted MIR
 /// and renders it to HTML. This enables the HTML renderer to
 /// work directly with ZON output from the parser.
 ///
 /// Parameters:
 ///   - allocator: Memory allocator
-///   - zon_ast: ZON-formatted AST string
+///   - zon_mir: ZON-formatted MIR string
 ///
 /// Returns: Complete HTML document
 ///
 /// Error: Returns error.InvalidZon if ZON parsing fails
-pub fn zonAstToHtml(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8 {
-    // Parse the ZON AST back into a Node structure
-    var ast = try parseZonAst(allocator, zon_ast);
-    defer ast.deinit(allocator);
+pub fn zonMirToHtml(allocator: std.mem.Allocator, zon_mir: []const u8) ![]u8 {
+    // Parse the ZON MIR back into a Node structure
+    var mir = try parseZonMir(allocator, zon_mir);
+    defer mir.deinit(allocator);
 
-    return renderToHtml(allocator, &ast);
+    return renderToHtml(allocator, &mir);
 }
 
-/// Parse ZON AST and render to HTML with custom template
+/// Parse ZON MIR and render to HTML with custom template
 ///
-/// Deserializes a ZON-formatted AST and renders it using a
+/// Deserializes a ZON-formatted MIR and renders it using a
 /// custom HTML template with {content} placeholder.
 ///
 /// Parameters:
 ///   - allocator: Memory allocator
-///   - zon_ast: ZON-formatted AST string
+///   - zon_mir: ZON-formatted MIR string
 ///   - template: HTML template with {content} placeholder
 ///
 /// Returns: HTML with content inserted into template
 ///
 /// Error: Returns error.InvalidZon if ZON parsing fails
-pub fn zonAstToHtmlWithTemplate(allocator: std.mem.Allocator, zon_ast: []const u8, template: []const u8) ![]u8 {
-    // Parse the ZON AST back into a Node structure
-    var ast = try parseZonAst(allocator, zon_ast);
-    defer ast.deinit(allocator);
+pub fn zonMirToHtmlWithTemplate(allocator: std.mem.Allocator, zon_mir: []const u8, template: []const u8) ![]u8 {
+    // Parse the ZON MIR back into a Node structure
+    var mir = try parseZonMir(allocator, zon_mir);
+    defer mir.deinit(allocator);
 
-    return renderToHtmlWithTemplate(allocator, &ast, template);
+    return renderToHtmlWithTemplate(allocator, &mir, template);
 }
 
-/// Parse ZON AST and render to HTML body only
+/// Parse ZON MIR and render to HTML body only
 ///
-/// Deserializes a ZON-formatted AST and renders just the
+/// Deserializes a ZON-formatted MIR and renders just the
 /// content without any HTML document wrapper.
 ///
 /// Parameters:
 ///   - allocator: Memory allocator
-///   - zon_ast: ZON-formatted AST string
+///   - zon_mir: ZON-formatted MIR string
 ///
 /// Returns: HTML content without wrapper
 ///
 /// Error: Returns error.InvalidZon if ZON parsing fails
-pub fn zonAstToHtmlBody(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8 {
-    // Parse the ZON AST back into a Node structure
-    var ast = try parseZonAst(allocator, zon_ast);
-    defer ast.deinit(allocator);
+pub fn zonMirToHtmlBody(allocator: std.mem.Allocator, zon_mir: []const u8) ![]u8 {
+    // Parse the ZON MIR back into a Node structure
+    var mir = try parseZonMir(allocator, zon_mir);
+    defer mir.deinit(allocator);
 
-    return renderToHtmlBody(allocator, &ast);
+    return renderToHtmlBody(allocator, &mir);
 }
 
 
-/// Internal AST structure for ZON deserialization
+/// Internal MIR structure for ZON deserialization
 ///
 /// This intermediate structure is used when parsing serialized
-/// AST data. It differs from the main Node struct in that it
+/// MIR data. It differs from the main Node struct in that it
 /// uses slices instead of ArrayLists for children.
-const ZonAstNode = struct {
-    type: NodeType,
+const ZonMirNode = struct {
+    type: MirType,
     content: ?[]const u8 = null,
     level: ?u8 = null,
-    children: []ZonAstNode = &[_]ZonAstNode{},
+    children: []ZonMirNode = &[_]ZonMirNode{},
 
-    /// Free resources owned by this ZON AST node
-    fn deinit(self: *ZonAstNode, allocator: std.mem.Allocator) void {
+    /// Free resources owned by this ZON MIR node
+    fn deinit(self: *ZonMirNode, allocator: std.mem.Allocator) void {
         if (self.content) |content| {
             allocator.free(content);
         }
@@ -379,9 +379,9 @@ const ZonAstNode = struct {
         }
     }
 
-    /// Convert ZON AST node to parser Node structure
-    fn toParserNode(self: *const ZonAstNode, allocator: std.mem.Allocator) !Node {
-        var node = Node.init(allocator, self.type);
+    /// Convert ZON MIR node to parser Node structure
+    fn toParserNode(self: *const ZonMirNode, allocator: std.mem.Allocator) !Mir {
+        var node = Mir.init(allocator, self.type);
 
         if (self.content) |content| {
             node.content = try allocator.dupe(u8, content);
@@ -390,7 +390,7 @@ const ZonAstNode = struct {
         node.level = self.level;
 
         for (self.children) |*child| {
-            const child_node = try allocator.create(Node);
+            const child_node = try allocator.create(Mir);
             child_node.* = try child.toParserNode(allocator);
             try node.children.append(child_node);
         }
@@ -399,57 +399,57 @@ const ZonAstNode = struct {
     }
 };
 
-/// ZON AST input structure for deserialization
+/// ZON MIR input structure for deserialization
 ///
-/// Matches the ZON format produced by the parser's astToZon()
+/// Matches the ZON format produced by the parser's mirToZon()
 /// function. Uses slices for zero-copy parsing.
-const ZonAstInput = struct {
-    type: NodeType,
+const ZonMirInput = struct {
+    type: MirType,
     content: ?[]const u8 = null,
     level: ?u8 = null,
-    children: []ZonAstInput = &[_]ZonAstInput{},
+    children: []ZonMirInput = &[_]ZonMirInput{},
 };
 
-/// Parse a ZON-formatted AST string into a Node structure
+/// Parse a ZON-formatted MIR string into a Mir structure
 ///
-/// Uses Zig's built-in ZON parser to deserialize the AST.
+/// Uses Zig's built-in ZON parser to deserialize the MIR.
 /// The ZON format preserves enum types and structure natively.
 ///
 /// Parameters:
-///   - allocator: Memory allocator for the Node
-///   - zon: ZON-formatted AST string
+///   - allocator: Memory allocator for the Mir
+///   - zon: ZON-formatted MIR string
 ///
-/// Returns: Parsed Node structure
+/// Returns: Parsed Mir structure
 ///
 /// Error: Returns error.InvalidZon if parsing fails
-fn parseZonAst(allocator: std.mem.Allocator, zon: []const u8) !Node {
+fn parseZonMir(allocator: std.mem.Allocator, zon: []const u8) !Mir {
     // Use std.zon.parse.fromSlice for ZON data
     // Need null-terminated string for ZON parser
     const zon_terminated = try allocator.dupeZ(u8, zon);
     defer allocator.free(zon_terminated);
 
-    const parsed = std.zon.parse.fromSlice(ZonAstInput, allocator, zon_terminated, null, .{}) catch return error.InvalidZon;
+    const parsed = std.zon.parse.fromSlice(ZonMirInput, allocator, zon_terminated, null, .{}) catch return error.InvalidZon;
     defer std.zon.parse.free(allocator, parsed);
 
     return try zonInputToNode(allocator, parsed);
 }
 
-/// Convert ZON input structure to parser Node
+/// Convert ZON input structure to parser Mir
 ///
 /// Recursively converts the deserialized ZON structure into
-/// the Node format used by the renderer. Handles content
+/// the Mir format used by the renderer. Handles content
 /// duplication and child node creation.
 ///
 /// Parameters:
 ///   - allocator: Memory allocator
 ///   - input: Deserialized ZON structure
 ///
-/// Returns: Converted Node structure
-fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
+/// Returns: Converted Mir structure
+fn zonInputToNode(allocator: std.mem.Allocator, input: ZonMirInput) !Mir {
     // Get node type directly from enum
     const node_type = input.type;
 
-    var node = Node.init(allocator, node_type);
+    var node = Mir.init(allocator, node_type);
 
     // Set content if present
     if (input.content) |content| {
@@ -461,7 +461,7 @@ fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
 
     // Convert children
     for (input.children) |child_input| {
-        const child_node = try allocator.create(Node);
+        const child_node = try allocator.create(Mir);
         child_node.* = try zonInputToNode(allocator, child_input);
         try node.children.append(child_node);
     }
@@ -473,7 +473,7 @@ fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
 test "render empty document" {
     const allocator = std.testing.allocator;
 
-    var root = Node.init(allocator, .document);
+    var root = Mir.init(allocator, .document);
     defer root.deinit(allocator);
 
     const html = try renderToHtml(allocator, &root);
@@ -486,11 +486,11 @@ test "render empty document" {
 test "render heading" {
     const allocator = std.testing.allocator;
 
-    var root = Node.init(allocator, .document);
+    var root = Mir.init(allocator, .document);
     defer root.deinit(allocator);
 
-    const heading = try allocator.create(Node);
-    heading.* = Node.init(allocator, .heading);
+    const heading = try allocator.create(Mir);
+    heading.* = Mir.init(allocator, .heading);
     heading.level = 2;
     heading.content = try allocator.dupe(u8, "Test Header");
 
@@ -505,22 +505,22 @@ test "render heading" {
 test "render paragraph with inline formatting" {
     const allocator = std.testing.allocator;
 
-    var root = Node.init(allocator, .document);
+    var root = Mir.init(allocator, .document);
     defer root.deinit(allocator);
 
-    const para = try allocator.create(Node);
-    para.* = Node.init(allocator, .paragraph);
+    const para = try allocator.create(Mir);
+    para.* = Mir.init(allocator, .paragraph);
 
-    const text1 = try allocator.create(Node);
-    text1.* = Node.init(allocator, .text);
+    const text1 = try allocator.create(Mir);
+    text1.* = Mir.init(allocator, .text);
     text1.content = try allocator.dupe(u8, "This is ");
 
-    const bold = try allocator.create(Node);
-    bold.* = Node.init(allocator, .strong);
+    const bold = try allocator.create(Mir);
+    bold.* = Mir.init(allocator, .strong);
     bold.content = try allocator.dupe(u8, "bold");
 
-    const text2 = try allocator.create(Node);
-    text2.* = Node.init(allocator, .text);
+    const text2 = try allocator.create(Mir);
+    text2.* = Mir.init(allocator, .text);
     text2.content = try allocator.dupe(u8, " text.");
 
     try para.children.append(text1);
@@ -534,10 +534,10 @@ test "render paragraph with inline formatting" {
     try std.testing.expect(std.mem.indexOf(u8, html, "<p>This is <strong>bold</strong> text.</p>") != null);
 }
 
-test "zonAstToHtml integration" {
+test "zonMirToHtml integration" {
     const allocator = std.testing.allocator;
 
-    const zon_ast =
+    const zon_mir =
         \\.{
         \\    .type = .document,
         \\    .children = .{
@@ -558,7 +558,7 @@ test "zonAstToHtml integration" {
         \\}
     ;
 
-    const html = try zonAstToHtml(allocator, zon_ast);
+    const html = try zonMirToHtml(allocator, zon_mir);
     defer allocator.free(html);
 
     try std.testing.expect(std.mem.indexOf(u8, html, "<h1>Hello</h1>") != null);
@@ -568,8 +568,8 @@ test "zonAstToHtml integration" {
 test "code block rendering with ZON" {
     const allocator = std.testing.allocator;
 
-    // Test ZON AST that represents a code block (fenced with ```)
-    const zon_ast =
+    // Test ZON MIR that represents a code block (fenced with ```)
+    const zon_mir =
         \\.{
         \\    .type = .document,
         \\    .children = .{
@@ -585,7 +585,7 @@ test "code block rendering with ZON" {
         \\}
     ;
 
-    const html = try zonAstToHtml(allocator, zon_ast);
+    const html = try zonMirToHtml(allocator, zon_mir);
     defer allocator.free(html);
 
     // Should contain proper code block

@@ -175,6 +175,17 @@ pub fn build(b: *std.Build) void {
     
     docs_step.dependOn(&install_docs.step);
 
+    // Documentation server step - generates docs and starts a web server
+    const docs_serve_step = b.step("docs-serve", "Generate docs and start web server");
+    docs_serve_step.dependOn(docs_step);
+    
+    // Run Python HTTP server to serve the docs
+    const serve_cmd = b.addSystemCommand(&.{
+        "python3", "-m", "http.server", "8000", "--directory", "zig-out/docs",
+    });
+    serve_cmd.step.dependOn(docs_step);
+    docs_serve_step.dependOn(&serve_cmd.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means

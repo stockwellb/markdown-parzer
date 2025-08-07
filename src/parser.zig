@@ -1,7 +1,7 @@
 //! Recursive descent parser for Markdown documents
 //!
 //! This module converts a stream of tokens from the lexer into an
-//! Abstract Syntax Tree (AST) representing the document structure.
+//! Markdown Intermediate Representation (MIR) representing the document structure.
 //! The parser handles all major Markdown elements including headings,
 //! paragraphs, lists, code blocks, and inline formatting.
 //!
@@ -20,10 +20,10 @@
 //! ## Usage
 //! ```zig
 //! var parser = Parser.init(allocator, tokens);
-//! const ast = try parser.parse();
+//! const mir = try parser.parse();
 //! defer {
-//!     ast.deinit(allocator);
-//!     allocator.destroy(ast);
+//!     mir.deinit(allocator);
+//!     allocator.destroy(mir);
 //! }
 //! ```
 
@@ -33,10 +33,10 @@ const lexer = @import("lexer.zig");
 const Token = lexer.Token;
 const TokenType = lexer.TokenType;
 
-/// Node types representing all Markdown elements in the AST
+/// Node types representing all Markdown elements in the MIR
 ///
-/// The NodeType enum defines all possible node types that can appear
-/// in the parsed AST. Some types are fully implemented while others
+/// The MirType enum defines all possible node types that can appear
+/// in the parsed MIR. Some types are fully implemented while others
 /// are defined for future extension.
 ///
 /// Fully implemented:
@@ -46,7 +46,7 @@ const TokenType = lexer.TokenType;
 ///
 /// Defined but not yet implemented:
 /// - link, image, blockquote, horizontal_rule
-pub const NodeType = enum {
+pub const MirType = enum {
     document,
     heading,
     paragraph,
@@ -63,7 +63,7 @@ pub const NodeType = enum {
     horizontal_rule,
 };
 
-/// AST node representing a Markdown element
+/// MIR node representing a Markdown element
 ///
 /// Nodes form a tree structure where each node can have:
 /// - A type identifying what Markdown element it represents
@@ -75,15 +75,15 @@ pub const NodeType = enum {
 /// - Nodes own their content and children
 /// - Call deinit() to recursively free all resources
 /// - Parent nodes are responsible for destroying child nodes
-pub const Node = struct {
+pub const Mir = struct {
     /// The type of Markdown element this node represents
-    type: NodeType,
+    type: MirType,
     /// Text content for leaf nodes (text, code, code_block)
     content: ?[]const u8 = null,
     /// Heading level (1-6) for heading nodes
     level: ?u8 = null,
     /// Child nodes for container elements
-    children: std.ArrayList(*Node),
+    children: std.ArrayList(*Mir),
 
     /// Initialize a new node with the given type
     ///
@@ -92,13 +92,13 @@ pub const Node = struct {
     ///
     /// Parameters:
     ///   - allocator: Memory allocator for the children list
-    ///   - node_type: The type of Markdown element
+    ///   - mir_type: The type of Markdown element
     ///
-    /// Returns: An initialized Node struct
-    pub fn init(allocator: std.mem.Allocator, node_type: NodeType) Node {
-        return Node{
-            .type = node_type,
-            .children = std.ArrayList(*Node).init(allocator),
+    /// Returns: An initialized Mir struct
+    pub fn init(allocator: std.mem.Allocator, mir_type: MirType) Mir {
+        return Mir{
+            .type = mir_type,
+            .children = std.ArrayList(*Mir).init(allocator),
         };
     }
 
@@ -114,7 +114,7 @@ pub const Node = struct {
     ///
     /// Parameters:
     ///   - allocator: The allocator used to create this node's resources
-    pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
+    pub fn deinit(self: *Mir, allocator: std.mem.Allocator) void {
         // Free content if it exists
         if (self.content) |content| {
             allocator.free(content);
@@ -129,10 +129,10 @@ pub const Node = struct {
     }
 };
 
-/// Markdown parser that converts tokens to an AST
+/// Markdown parser that converts tokens to an MIR
 ///
 /// The Parser maintains state while traversing the token stream,
-/// building up a hierarchical AST representing the document structure.
+/// building up a hierarchical MIR representing the document structure.
 ///
 /// ## Parsing Strategy
 /// - Block-level elements are parsed first (headings, paragraphs, lists)
@@ -153,7 +153,7 @@ pub const Parser = struct {
     /// The caller must ensure tokens remain valid during parsing.
     ///
     /// Parameters:
-    ///   - allocator: Allocator for creating AST nodes
+    ///   - allocator: Allocator for creating MIR nodes
     ///   - tokens: Token stream from the lexer
     ///
     /// Returns: A new parser ready to parse
@@ -164,17 +164,17 @@ pub const Parser = struct {
         };
     }
 
-    /// Parse the token stream into an AST
+    /// Parse the token stream into an MIR
     ///
     /// Creates a document root node and parses all block-level
-    /// elements. The returned AST must be freed by the caller.
+    /// elements. The returned MIR must be freed by the caller.
     ///
-    /// Returns: Root node of the AST (type = .document)
+    /// Returns: Root node of the MIR (type = .document)
     ///
     /// Error: Returns error.OutOfMemory if allocation fails
-    pub fn parse(self: *Parser) !*Node {
-        const root = try self.allocator.create(Node);
-        root.* = Node.init(self.allocator, .document);
+    pub fn parse(self: *Parser) !*Mir {
+        const root = try self.allocator.create(Mir);
+        root.* = Mir.init(self.allocator, .document);
 
         // Parse document content
         while (self.peek()) |_| {
@@ -221,7 +221,7 @@ pub const Parser = struct {
     /// - Paragraphs (default)
     ///
     /// Returns: Parsed block node, or null if no block found
-    fn parseBlock(self: *Parser) !?*Node {
+    fn parseBlock(self: *Parser) !?*Mir {
         // Skip whitespace and newlines at block level
         self.skipWhitespaceAndNewlines();
 
@@ -261,7 +261,7 @@ pub const Parser = struct {
     /// - Inline formatting in heading text
     ///
     /// Returns: Heading node with level and children
-    fn parseHeading(self: *Parser) !*Node {
+    fn parseHeading(self: *Parser) !*Mir {
         var level: u8 = 0;
 
         // Count hash symbols
@@ -282,8 +282,8 @@ pub const Parser = struct {
         }
 
         // Create heading node
-        const heading = try self.allocator.create(Node);
-        heading.* = Node.init(self.allocator, .heading);
+        const heading = try self.allocator.create(Mir);
+        heading.* = Mir.init(self.allocator, .heading);
         heading.level = level;
 
         // Parse heading content as inline elements
@@ -314,9 +314,9 @@ pub const Parser = struct {
     /// to properly separate block elements.
     ///
     /// Returns: Paragraph node with inline children
-    fn parseParagraph(self: *Parser) !*Node {
-        const paragraph = try self.allocator.create(Node);
-        paragraph.* = Node.init(self.allocator, .paragraph);
+    fn parseParagraph(self: *Parser) !*Mir {
+        const paragraph = try self.allocator.create(Mir);
+        paragraph.* = Mir.init(self.allocator, .paragraph);
 
         // Parse paragraph content as inline elements
         while (self.peek()) |token| {
@@ -378,7 +378,7 @@ pub const Parser = struct {
     /// - Special characters as literal text
     ///
     /// Returns: Inline node, or null if no inline element found
-    fn parseInline(self: *Parser) !?*Node {
+    fn parseInline(self: *Parser) !?*Mir {
         const token = self.peek() orelse return null;
 
         switch (token.type) {
@@ -410,7 +410,7 @@ pub const Parser = struct {
     /// 4. Use parseInlineSimple() to prevent recursion
     ///
     /// Returns: Emphasis/strong node, or text node if unmatched
-    fn parseEmphasisOrStrong(self: *Parser) !?*Node {
+    fn parseEmphasisOrStrong(self: *Parser) !?*Mir {
         const start_pos = self.current;
         var star_count: u8 = 0;
 
@@ -464,9 +464,9 @@ pub const Parser = struct {
         }
 
         // Create emphasis or strong node and parse children
-        const node_type: NodeType = if (star_count >= 2) .strong else .emphasis;
-        const node = try self.allocator.create(Node);
-        node.* = Node.init(self.allocator, node_type);
+        const mir_type: MirType = if (star_count >= 2) .strong else .emphasis;
+        const node = try self.allocator.create(Mir);
+        node.* = Mir.init(self.allocator, mir_type);
 
         // Parse content between asterisks as inline elements (excluding emphasis/strong to avoid recursion)
         while (self.current < content_end_pos) {
@@ -493,7 +493,7 @@ pub const Parser = struct {
     /// formatting like **`code`**.
     ///
     /// Returns: Inline node (text or code only)
-    fn parseInlineSimple(self: *Parser) !?*Node {
+    fn parseInlineSimple(self: *Parser) !?*Mir {
         const token = self.peek() orelse return null;
 
         switch (token.type) {
@@ -517,7 +517,7 @@ pub const Parser = struct {
     /// Full implementation reserved for future enhancement.
     ///
     /// Returns: Text node with underscore
-    fn parseEmphasisUnderscore(self: *Parser) !?*Node {
+    fn parseEmphasisUnderscore(self: *Parser) !?*Mir {
         // Similar logic to asterisks but for underscores
         // For now, just treat as text to keep implementation simple
         return try self.parseText();
@@ -534,7 +534,7 @@ pub const Parser = struct {
     /// - Unmatched backticks as literal text
     ///
     /// Returns: Code node with content, or text node if unmatched
-    fn parseCode(self: *Parser) !?*Node {
+    fn parseCode(self: *Parser) !?*Mir {
         const start_pos = self.current;
         _ = self.advance(); // consume opening backtick
         
@@ -573,8 +573,8 @@ pub const Parser = struct {
             }
         }
         
-        const code = try self.allocator.create(Node);
-        code.* = Node.init(self.allocator, .code);
+        const code = try self.allocator.create(Mir);
+        code.* = Mir.init(self.allocator, .code);
         code.content = try content.toOwnedSlice();
         
         return code;
@@ -585,7 +585,7 @@ pub const Parser = struct {
     /// Consumes the current token and creates a text node.
     ///
     /// Returns: Text node with token value as content
-    fn parseText(self: *Parser) !?*Node {
+    fn parseText(self: *Parser) !?*Mir {
         const token = self.advance() orelse return null;
         return try self.parseTextToken(token);
     }
@@ -599,9 +599,9 @@ pub const Parser = struct {
     ///   - token: Token to convert to text node
     ///
     /// Returns: Text node with duplicated content
-    fn parseTextToken(self: *Parser, token: Token) !*Node {
-        const text = try self.allocator.create(Node);
-        text.* = Node.init(self.allocator, .text);
+    fn parseTextToken(self: *Parser, token: Token) !*Mir {
+        const text = try self.allocator.create(Mir);
+        text.* = Mir.init(self.allocator, .text);
         text.content = try self.allocator.dupe(u8, token.value);
         return text;
     }
@@ -615,9 +615,9 @@ pub const Parser = struct {
     ///   - content: Text content for the node
     ///
     /// Returns: Text node with duplicated content
-    fn parseTextLiteral(self: *Parser, content: []const u8) !*Node {
-        const text = try self.allocator.create(Node);
-        text.* = Node.init(self.allocator, .text);
+    fn parseTextLiteral(self: *Parser, content: []const u8) !*Mir {
+        const text = try self.allocator.create(Mir);
+        text.* = Mir.init(self.allocator, .text);
         text.content = try self.allocator.dupe(u8, content);
         return text;
     }
@@ -630,9 +630,9 @@ pub const Parser = struct {
     ///   - space: Whitespace content (usually " ")
     ///
     /// Returns: Text node with space content
-    fn parseSpace(self: *Parser, space: []const u8) !*Node {
-        const text = try self.allocator.create(Node);
-        text.* = Node.init(self.allocator, .text);
+    fn parseSpace(self: *Parser, space: []const u8) !*Mir {
+        const text = try self.allocator.create(Mir);
+        text.* = Mir.init(self.allocator, .text);
         text.content = try self.allocator.dupe(u8, space);
         return text;
     }
@@ -684,7 +684,7 @@ pub const Parser = struct {
     /// - Proper fence matching (closing must match opening length)
     ///
     /// Returns: Code block node with content
-    fn parseCodeBlock(self: *Parser) !*Node {
+    fn parseCodeBlock(self: *Parser) !*Mir {
         // Count opening backticks
         var opening_count: u8 = 0;
         while (self.peek()) |token| {
@@ -747,8 +747,8 @@ pub const Parser = struct {
             }
         }
         
-        const code_block = try self.allocator.create(Node);
-        code_block.* = Node.init(self.allocator, .code_block);
+        const code_block = try self.allocator.create(Mir);
+        code_block.* = Mir.init(self.allocator, .code_block);
         code_block.content = try content.toOwnedSlice();
         
         return code_block;
@@ -819,7 +819,7 @@ pub const Parser = struct {
     /// with base indentation of 0.
     ///
     /// Returns: List node containing list items
-    fn parseList(self: *Parser) !*Node {
+    fn parseList(self: *Parser) !*Mir {
         return try self.parseListAtLevel(0);
     }
 
@@ -833,9 +833,9 @@ pub const Parser = struct {
     ///   - base_indent: Expected indentation for items at this level
     ///
     /// Returns: List node with items at this level
-    fn parseListAtLevel(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Node {
-        const list = try self.allocator.create(Node);
-        list.* = Node.init(self.allocator, .list);
+    fn parseListAtLevel(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Mir {
+        const list = try self.allocator.create(Mir);
+        list.* = Mir.init(self.allocator, .list);
         
         // Parse consecutive list items at this indentation level
         while (self.peek()) |token| {
@@ -870,7 +870,7 @@ pub const Parser = struct {
     /// parseListItemWithNesting() with base indentation of 0.
     ///
     /// Returns: List item node with content
-    fn parseListItem(self: *Parser) !*Node {
+    fn parseListItem(self: *Parser) !*Mir {
         return try self.parseListItemWithNesting(0);
     }
 
@@ -885,7 +885,7 @@ pub const Parser = struct {
     ///   - base_indent: Indentation level of this item
     ///
     /// Returns: List item node with content and nested lists
-    fn parseListItemWithNesting(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Node {
+    fn parseListItemWithNesting(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Mir {
         // Consume the - or * marker
         _ = self.advance();
         
@@ -896,8 +896,8 @@ pub const Parser = struct {
             }
         }
         
-        const list_item = try self.allocator.create(Node);
-        list_item.* = Node.init(self.allocator, .list_item);
+        const list_item = try self.allocator.create(Mir);
+        list_item.* = Mir.init(self.allocator, .list_item);
         
         // Parse list item content as inline elements until newline
         while (self.peek()) |token| {
@@ -946,13 +946,13 @@ test "parser initialization" {
     };
 
     var parser = Parser.init(allocator, &tokens);
-    const ast = try parser.parse();
+    const mir = try parser.parse();
     defer {
-        ast.deinit(allocator);
-        allocator.destroy(ast);
+        mir.deinit(allocator);
+        allocator.destroy(mir);
     }
 
-    try std.testing.expectEqual(NodeType.document, ast.type);
+    try std.testing.expectEqual(MirType.document, mir.type);
 }
 
 test "parse simple heading" {
@@ -965,17 +965,17 @@ test "parse simple heading" {
     };
 
     var parser = Parser.init(allocator, &tokens);
-    const ast = try parser.parse();
+    const mir = try parser.parse();
     defer {
-        ast.deinit(allocator);
-        allocator.destroy(ast);
+        mir.deinit(allocator);
+        allocator.destroy(mir);
     }
 
-    try std.testing.expectEqual(NodeType.document, ast.type);
-    try std.testing.expectEqual(@as(usize, 1), ast.children.items.len);
+    try std.testing.expectEqual(MirType.document, mir.type);
+    try std.testing.expectEqual(@as(usize, 1), mir.children.items.len);
 
-    const heading = ast.children.items[0];
-    try std.testing.expectEqual(NodeType.heading, heading.type);
+    const heading = mir.children.items[0];
+    try std.testing.expectEqual(MirType.heading, heading.type);
     try std.testing.expectEqual(@as(u8, 1), heading.level.?);
 }
 
@@ -983,7 +983,7 @@ test "parse simple heading" {
 const ParserTestCase = struct {
     name: []const u8,
     markdown: []const u8,
-    expected_ast: ExpectedNode,
+    expected_mir: ExpectedNode,
 };
 
 const ExpectedNode = struct {
@@ -999,7 +999,7 @@ test "comprehensive parser tests" {
         .{
             .name = "simple_text",
             .markdown = "Hello world",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1018,7 +1018,7 @@ test "comprehensive parser tests" {
         .{
             .name = "heading_level_1",
             .markdown = "# Main Title",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1037,7 +1037,7 @@ test "comprehensive parser tests" {
         .{
             .name = "heading_level_3",
             .markdown = "### Subsection",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1055,7 +1055,7 @@ test "comprehensive parser tests" {
         .{
             .name = "emphasis",
             .markdown = "This is *italic* text",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1077,7 +1077,7 @@ test "comprehensive parser tests" {
         .{
             .name = "strong",
             .markdown = "This is **bold** text",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1100,7 +1100,7 @@ test "comprehensive parser tests" {
         .{
             .name = "inline_code",
             .markdown = "Use `code` here",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1121,7 +1121,7 @@ test "comprehensive parser tests" {
         .{
             .name = "multiple_paragraphs",
             .markdown = "First paragraph\n\nSecond paragraph",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1148,7 +1148,7 @@ test "comprehensive parser tests" {
         .{
             .name = "mixed_content",
             .markdown = "# Title\n\nThis is **bold** and *italic* with `code`",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1184,7 +1184,7 @@ test "comprehensive parser tests" {
         .{
             .name = "unmatched_emphasis",
             .markdown = "This is *unmatched emphasis",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1207,7 +1207,7 @@ test "comprehensive parser tests" {
         .{
             .name = "unmatched_code",
             .markdown = "This is `unmatched code",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1230,7 +1230,7 @@ test "comprehensive parser tests" {
         .{
             .name = "empty_emphasis",
             .markdown = "This is ** empty",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1253,7 +1253,7 @@ test "comprehensive parser tests" {
         .{
             .name = "special_characters",
             .markdown = "Text with - and _ and | characters",
-            .expected_ast = .{
+            .expected_mir = .{
                 .type = "document",
                 .children = &[_]ExpectedNode{
                     .{
@@ -1296,14 +1296,14 @@ test "comprehensive parser tests" {
 
         // Parse the tokens
         var parser = Parser.init(std.testing.allocator, tokens);
-        const ast = try parser.parse();
+        const mir = try parser.parse();
         defer {
-            ast.deinit(std.testing.allocator);
-            std.testing.allocator.destroy(ast);
+            mir.deinit(std.testing.allocator);
+            std.testing.allocator.destroy(mir);
         }
 
-        // Validate the AST structure
-        try validateNode(ast, test_case.expected_ast, test_case.name);
+        // Validate the MIR structure
+        try validateNode(mir, test_case.expected_mir, test_case.name);
     }
 }
 
@@ -1339,20 +1339,20 @@ fn tokenizeMarkdown(allocator: std.mem.Allocator, markdown: []const u8) ![]Token
     return tokens.toOwnedSlice();
 }
 
-/// Helper function to validate AST nodes recursively
+/// Helper function to validate MIR nodes recursively
 ///
-/// Compares actual AST nodes against expected structure for testing.
+/// Compares actual MIR nodes against expected structure for testing.
 /// Validates type, content, level, and children recursively.
 ///
 /// Parameters:
-///   - actual: The actual AST node to validate
+///   - actual: The actual MIR node to validate
 ///   - expected: The expected node structure
 ///   - test_name: Name of test for error reporting
 ///
 /// Error: Test assertion failures
-fn validateNode(actual: *const Node, expected: ExpectedNode, test_name: []const u8) !void {
+fn validateNode(actual: *const Mir, expected: ExpectedNode, test_name: []const u8) !void {
     // Check node type
-    const expected_type = std.meta.stringToEnum(NodeType, expected.type) orelse {
+    const expected_type = std.meta.stringToEnum(MirType, expected.type) orelse {
         std.debug.print("Test '{s}' failed: Unknown expected node type '{s}'\n", .{ test_name, expected.type });
         return std.testing.expect(false);
     };

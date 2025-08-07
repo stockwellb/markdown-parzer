@@ -23,16 +23,16 @@ pub fn main() !void {
     };
     defer std.zon.parse.free(allocator, tokens);
 
-    // Parse tokens into AST
+    // Parse tokens into MIR
     var parser = markdown_parzer.Parser.init(allocator, tokens);
-    const ast = try parser.parse();
+    const mir = try parser.parse();
     defer {
-        ast.deinit(allocator);
-        allocator.destroy(ast);
+        mir.deinit(allocator);
+        allocator.destroy(mir);
     }
 
-    // Output AST as ZON to stdout
-    const zon_output = try markdown_parzer.astToZon(allocator, ast);
+    // Output MIR as ZON to stdout
+    const zon_output = try markdown_parzer.mirToZon(allocator, mir);
     defer allocator.free(zon_output);
     
     try std.fs.File.stdout().writeAll(zon_output);
