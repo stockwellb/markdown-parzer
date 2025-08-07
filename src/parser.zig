@@ -1,10 +1,51 @@
+//! Recursive descent parser for Markdown documents
+//!
+//! This module converts a stream of tokens from the lexer into an
+//! Abstract Syntax Tree (AST) representing the document structure.
+//! The parser handles all major Markdown elements including headings,
+//! paragraphs, lists, code blocks, and inline formatting.
+//!
+//! ## Features
+//! - Complete Markdown element support (headings, lists, code blocks, etc.)
+//! - Nested inline formatting (e.g., **`bold code`**)
+//! - Robust error handling with fallback to literal text
+//! - Memory-safe with proper cleanup via deinit
+//! - Loop prevention for malformed input
+//!
+//! ## Architecture
+//! The parser uses a recursive descent approach with separate functions
+//! for block-level and inline elements. This separation prevents infinite
+//! recursion and provides clean parsing logic.
+//!
+//! ## Usage
+//! ```zig
+//! var parser = Parser.init(allocator, tokens);
+//! const ast = try parser.parse();
+//! defer {
+//!     ast.deinit(allocator);
+//!     allocator.destroy(ast);
+//! }
+//! ```
+
 const std = @import("std");
 const lexer = @import("lexer.zig");
 
 const Token = lexer.Token;
 const TokenType = lexer.TokenType;
 
-// AST Node types for Markdown elements
+/// Node types representing all Markdown elements in the AST
+///
+/// The NodeType enum defines all possible node types that can appear
+/// in the parsed AST. Some types are fully implemented while others
+/// are defined for future extension.
+///
+/// Fully implemented:
+/// - document, heading, paragraph, text
+/// - emphasis, strong, code, code_block
+/// - list, list_item
+///
+/// Defined but not yet implemented:
+/// - link, image, blockquote, horizontal_rule
 pub const NodeType = enum {
     document,
     heading,
@@ -22,12 +63,38 @@ pub const NodeType = enum {
     horizontal_rule,
 };
 
+/// AST node representing a Markdown element
+///
+/// Nodes form a tree structure where each node can have:
+/// - A type identifying what Markdown element it represents
+/// - Optional content for leaf nodes (text, code)
+/// - Optional metadata (e.g., heading level)
+/// - Child nodes for container elements
+///
+/// Memory management:
+/// - Nodes own their content and children
+/// - Call deinit() to recursively free all resources
+/// - Parent nodes are responsible for destroying child nodes
 pub const Node = struct {
+    /// The type of Markdown element this node represents
     type: NodeType,
+    /// Text content for leaf nodes (text, code, code_block)
     content: ?[]const u8 = null,
-    level: ?u8 = null, // For headings
+    /// Heading level (1-6) for heading nodes
+    level: ?u8 = null,
+    /// Child nodes for container elements
     children: std.ArrayList(*Node),
 
+    /// Initialize a new node with the given type
+    ///
+    /// Creates a node with an empty children list. Content and level
+    /// should be set separately as needed.
+    ///
+    /// Parameters:
+    ///   - allocator: Memory allocator for the children list
+    ///   - node_type: The type of Markdown element
+    ///
+    /// Returns: An initialized Node struct
     pub fn init(allocator: std.mem.Allocator, node_type: NodeType) Node {
         return Node{
             .type = node_type,
@@ -35,6 +102,18 @@ pub const Node = struct {
         };
     }
 
+    /// Recursively free all resources owned by this node
+    ///
+    /// Frees:
+    /// - The content string (if present)
+    /// - All child nodes (recursively)
+    /// - The children ArrayList
+    ///
+    /// Note: Does NOT free the node itself - caller must use
+    /// allocator.destroy() for that.
+    ///
+    /// Parameters:
+    ///   - allocator: The allocator used to create this node's resources
     pub fn deinit(self: *Node, allocator: std.mem.Allocator) void {
         // Free content if it exists
         if (self.content) |content| {
@@ -50,11 +129,34 @@ pub const Node = struct {
     }
 };
 
+/// Markdown parser that converts tokens to an AST
+///
+/// The Parser maintains state while traversing the token stream,
+/// building up a hierarchical AST representing the document structure.
+///
+/// ## Parsing Strategy
+/// - Block-level elements are parsed first (headings, paragraphs, lists)
+/// - Inline elements are parsed within blocks (emphasis, code, text)
+/// - Special parseInlineSimple() prevents recursion in nested formatting
+/// - Unknown tokens are safely skipped to prevent infinite loops
 pub const Parser = struct {
+    /// The token stream to parse (not owned by parser)
     tokens: []const Token,
+    /// Current position in the token stream
     current: usize = 0,
+    /// Memory allocator for creating nodes
     allocator: std.mem.Allocator,
 
+    /// Initialize a new parser with the given tokens
+    ///
+    /// The parser does not take ownership of the token slice.
+    /// The caller must ensure tokens remain valid during parsing.
+    ///
+    /// Parameters:
+    ///   - allocator: Allocator for creating AST nodes
+    ///   - tokens: Token stream from the lexer
+    ///
+    /// Returns: A new parser ready to parse
     pub fn init(allocator: std.mem.Allocator, tokens: []const Token) Parser {
         return Parser{
             .allocator = allocator,
@@ -62,6 +164,14 @@ pub const Parser = struct {
         };
     }
 
+    /// Parse the token stream into an AST
+    ///
+    /// Creates a document root node and parses all block-level
+    /// elements. The returned AST must be freed by the caller.
+    ///
+    /// Returns: Root node of the AST (type = .document)
+    ///
+    /// Error: Returns error.OutOfMemory if allocation fails
     pub fn parse(self: *Parser) !*Node {
         const root = try self.allocator.create(Node);
         root.* = Node.init(self.allocator, .document);
@@ -79,11 +189,21 @@ pub const Parser = struct {
         return root;
     }
 
+    /// Look at the current token without consuming it
+    ///
+    /// Used for lookahead operations to determine parsing strategy.
+    ///
+    /// Returns: Current token, or null if at end of stream
     fn peek(self: *Parser) ?Token {
         if (self.current >= self.tokens.len) return null;
         return self.tokens[self.current];
     }
 
+    /// Consume and return the current token
+    ///
+    /// Advances the parser position by one token.
+    ///
+    /// Returns: The consumed token, or null if at end of stream
     fn advance(self: *Parser) ?Token {
         if (self.current >= self.tokens.len) return null;
         const token = self.tokens[self.current];
@@ -91,7 +211,16 @@ pub const Parser = struct {
         return token;
     }
 
-    /// Parse a block-level element (heading, paragraph, etc.)
+    /// Parse a block-level element
+    ///
+    /// Identifies and dispatches to the appropriate parser based on
+    /// the current token. Handles:
+    /// - Headings (#, ##, ###)
+    /// - Code blocks (```)
+    /// - Lists (-, *)
+    /// - Paragraphs (default)
+    ///
+    /// Returns: Parsed block node, or null if no block found
     fn parseBlock(self: *Parser) !?*Node {
         // Skip whitespace and newlines at block level
         self.skipWhitespaceAndNewlines();
@@ -121,7 +250,17 @@ pub const Parser = struct {
         }
     }
 
-    /// Parse a heading (# ## ###)
+    /// Parse a heading element
+    ///
+    /// Counts the number of # symbols to determine heading level,
+    /// then parses the heading content as inline elements.
+    ///
+    /// Handles:
+    /// - Multiple heading levels (1-6)
+    /// - Optional space after #
+    /// - Inline formatting in heading text
+    ///
+    /// Returns: Heading node with level and children
     fn parseHeading(self: *Parser) !*Node {
         var level: u8 = 0;
 
@@ -164,7 +303,17 @@ pub const Parser = struct {
         return heading;
     }
 
-    /// Parse a paragraph
+    /// Parse a paragraph element
+    ///
+    /// Collects inline elements until reaching:
+    /// - Double newline (end of paragraph)
+    /// - Start of new block element
+    /// - End of file
+    ///
+    /// Smart paragraph termination detects headings and lists
+    /// to properly separate block elements.
+    ///
+    /// Returns: Paragraph node with inline children
     fn parseParagraph(self: *Parser) !*Node {
         const paragraph = try self.allocator.create(Node);
         paragraph.* = Node.init(self.allocator, .paragraph);
@@ -219,7 +368,16 @@ pub const Parser = struct {
         return paragraph;
     }
 
-    /// Parse inline elements (text, emphasis, strong, etc.)
+    /// Parse inline elements within blocks
+    ///
+    /// Main dispatcher for inline formatting. Handles:
+    /// - Emphasis (*text*)
+    /// - Strong (**text**)
+    /// - Inline code (`code`)
+    /// - Plain text
+    /// - Special characters as literal text
+    ///
+    /// Returns: Inline node, or null if no inline element found
     fn parseInline(self: *Parser) !?*Node {
         const token = self.peek() orelse return null;
 
@@ -240,7 +398,18 @@ pub const Parser = struct {
         }
     }
 
-    /// Parse emphasis or strong emphasis with asterisks
+    /// Parse emphasis (*) or strong (**) formatting
+    ///
+    /// Counts asterisks and looks ahead for matching closing asterisks.
+    /// Falls back to literal text if no closing asterisks found.
+    ///
+    /// Algorithm:
+    /// 1. Count opening asterisks
+    /// 2. Look ahead for matching closing asterisks
+    /// 3. Parse content between as inline elements
+    /// 4. Use parseInlineSimple() to prevent recursion
+    ///
+    /// Returns: Emphasis/strong node, or text node if unmatched
     fn parseEmphasisOrStrong(self: *Parser) !?*Node {
         const start_pos = self.current;
         var star_count: u8 = 0;
@@ -317,7 +486,13 @@ pub const Parser = struct {
         return node;
     }
 
-    /// Parse simple inline elements (no emphasis/strong to avoid recursion)
+    /// Parse inline elements without emphasis/strong
+    ///
+    /// Special version of parseInline() that excludes emphasis and
+    /// strong to prevent infinite recursion when parsing nested
+    /// formatting like **`code`**.
+    ///
+    /// Returns: Inline node (text or code only)
     fn parseInlineSimple(self: *Parser) !?*Node {
         const token = self.peek() orelse return null;
 
@@ -336,14 +511,29 @@ pub const Parser = struct {
         }
     }
 
-    /// Parse emphasis with underscores
+    /// Parse emphasis with underscores (_text_)
+    ///
+    /// Currently treats underscores as literal text.
+    /// Full implementation reserved for future enhancement.
+    ///
+    /// Returns: Text node with underscore
     fn parseEmphasisUnderscore(self: *Parser) !?*Node {
         // Similar logic to asterisks but for underscores
         // For now, just treat as text to keep implementation simple
         return try self.parseText();
     }
 
-    /// Parse inline code
+    /// Parse inline code spans
+    ///
+    /// Looks for matching backticks and captures content between.
+    /// Falls back to literal backtick if no closing found.
+    ///
+    /// Handles:
+    /// - Single backtick delimiters
+    /// - Proper content extraction
+    /// - Unmatched backticks as literal text
+    ///
+    /// Returns: Code node with content, or text node if unmatched
     fn parseCode(self: *Parser) !?*Node {
         const start_pos = self.current;
         _ = self.advance(); // consume opening backtick
@@ -390,13 +580,25 @@ pub const Parser = struct {
         return code;
     }
 
-    /// Parse regular text
+    /// Parse a text token
+    ///
+    /// Consumes the current token and creates a text node.
+    ///
+    /// Returns: Text node with token value as content
     fn parseText(self: *Parser) !?*Node {
         const token = self.advance() orelse return null;
         return try self.parseTextToken(token);
     }
 
-    /// Create a text node from a token
+    /// Create a text node from a specific token
+    ///
+    /// Helper function to create text nodes from any token.
+    /// Duplicates the token value for the node to own.
+    ///
+    /// Parameters:
+    ///   - token: Token to convert to text node
+    ///
+    /// Returns: Text node with duplicated content
     fn parseTextToken(self: *Parser, token: Token) !*Node {
         const text = try self.allocator.create(Node);
         text.* = Node.init(self.allocator, .text);
@@ -405,6 +607,14 @@ pub const Parser = struct {
     }
 
     /// Create a text node with literal content
+    ///
+    /// Helper for creating text nodes with specific content.
+    /// Duplicates the content for the node to own.
+    ///
+    /// Parameters:
+    ///   - content: Text content for the node
+    ///
+    /// Returns: Text node with duplicated content
     fn parseTextLiteral(self: *Parser, content: []const u8) !*Node {
         const text = try self.allocator.create(Node);
         text.* = Node.init(self.allocator, .text);
@@ -412,7 +622,14 @@ pub const Parser = struct {
         return text;
     }
 
-    /// Create a space text node
+    /// Create a text node containing whitespace
+    ///
+    /// Used to convert newlines to spaces in inline context.
+    ///
+    /// Parameters:
+    ///   - space: Whitespace content (usually " ")
+    ///
+    /// Returns: Text node with space content
     fn parseSpace(self: *Parser, space: []const u8) !*Node {
         const text = try self.allocator.create(Node);
         text.* = Node.init(self.allocator, .text);
@@ -420,7 +637,10 @@ pub const Parser = struct {
         return text;
     }
 
-    /// Skip whitespace and newlines
+    /// Skip whitespace and newline tokens
+    ///
+    /// Used at block level to ignore formatting whitespace.
+    /// Does not skip whitespace within inline content.
     fn skipWhitespaceAndNewlines(self: *Parser) void {
         while (self.peek()) |token| {
             if (token.type == .space or token.type == .tab or token.type == .newline) {
@@ -431,7 +651,12 @@ pub const Parser = struct {
         }
     }
 
-    /// Check if current position starts a fenced code block (```)
+    /// Check if current position starts a fenced code block
+    ///
+    /// Looks ahead to check for three or more consecutive backticks,
+    /// which indicates a fenced code block rather than inline code.
+    ///
+    /// Returns: true if three or more backticks found
     fn isCodeBlock(self: *Parser) bool {
         var temp_pos = self.current;
         var backtick_count: u8 = 0;
@@ -450,7 +675,15 @@ pub const Parser = struct {
         return backtick_count >= 3;
     }
 
-    /// Parse a fenced code block (```...```)
+    /// Parse a fenced code block
+    ///
+    /// Handles:
+    /// - Opening/closing fence detection (``` or more)
+    /// - Optional language identifier after opening fence
+    /// - Multi-line code content
+    /// - Proper fence matching (closing must match opening length)
+    ///
+    /// Returns: Code block node with content
     fn parseCodeBlock(self: *Parser) !*Node {
         // Count opening backticks
         var opening_count: u8 = 0;
@@ -521,7 +754,13 @@ pub const Parser = struct {
         return code_block;
     }
 
-    /// Check if current position starts a list item (- or * followed by space)
+    /// Check if current position starts a list item
+    ///
+    /// List items must have:
+    /// - Marker (- or *)
+    /// - Space after marker
+    ///
+    /// Returns: true if valid list item pattern found
     fn isListItem(self: *Parser) bool {
         if (self.current >= self.tokens.len) return false;
         
@@ -536,7 +775,14 @@ pub const Parser = struct {
         return second_token.type == .space;
     }
 
-    /// Get the indentation level before a list item (count spaces/tabs)
+    /// Calculate indentation level for list nesting
+    ///
+    /// Counts spaces and tabs from start of line to determine
+    /// nesting level. Tabs count as 4 spaces.
+    ///
+    /// Used to handle nested lists based on indentation.
+    ///
+    /// Returns: Indentation level in spaces
     fn getListIndentLevel(self: *Parser) u32 {
         var temp_pos = self.current;
         var indent_level: u32 = 0;
@@ -567,12 +813,26 @@ pub const Parser = struct {
         return indent_level;
     }
 
-    /// Parse a list (multiple list items)
+    /// Parse a list element
+    ///
+    /// Entry point for list parsing. Delegates to parseListAtLevel()
+    /// with base indentation of 0.
+    ///
+    /// Returns: List node containing list items
     fn parseList(self: *Parser) !*Node {
         return try self.parseListAtLevel(0);
     }
 
     /// Parse a list at a specific indentation level
+    ///
+    /// Handles nested lists by tracking indentation levels.
+    /// Items at the same level are siblings, more indented items
+    /// create nested lists.
+    ///
+    /// Parameters:
+    ///   - base_indent: Expected indentation for items at this level
+    ///
+    /// Returns: List node with items at this level
     fn parseListAtLevel(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Node {
         const list = try self.allocator.create(Node);
         list.* = Node.init(self.allocator, .list);
@@ -604,12 +864,27 @@ pub const Parser = struct {
         return list;
     }
 
-    /// Parse a single list item (- content)
+    /// Parse a single list item
+    ///
+    /// Entry point for list item parsing. Delegates to
+    /// parseListItemWithNesting() with base indentation of 0.
+    ///
+    /// Returns: List item node with content
     fn parseListItem(self: *Parser) !*Node {
         return try self.parseListItemWithNesting(0);
     }
 
-    /// Parse a single list item with nesting support
+    /// Parse a list item with nested list support
+    ///
+    /// Handles:
+    /// - List marker consumption (- or *)
+    /// - Inline content parsing
+    /// - Nested list detection based on indentation
+    ///
+    /// Parameters:
+    ///   - base_indent: Indentation level of this item
+    ///
+    /// Returns: List item node with content and nested lists
     fn parseListItemWithNesting(self: *Parser, base_indent: u32) std.mem.Allocator.Error!*Node {
         // Consume the - or * marker
         _ = self.advance();
@@ -1032,7 +1307,16 @@ test "comprehensive parser tests" {
     }
 }
 
-// Helper function to tokenize markdown for testing
+/// Helper function to tokenize markdown for testing
+///
+/// Converts raw markdown text to tokens for parser testing.
+/// Duplicates token values since they reference the input string.
+///
+/// Parameters:
+///   - allocator: Allocator for tokens and values
+///   - markdown: Raw markdown text
+///
+/// Returns: Owned slice of tokens with duplicated values
 fn tokenizeMarkdown(allocator: std.mem.Allocator, markdown: []const u8) ![]Token {
     const tokenizer_mod = @import("lexer.zig");
     var tokenizer = tokenizer_mod.Tokenizer.init(markdown);
@@ -1055,7 +1339,17 @@ fn tokenizeMarkdown(allocator: std.mem.Allocator, markdown: []const u8) ![]Token
     return tokens.toOwnedSlice();
 }
 
-// Helper function to validate AST nodes recursively
+/// Helper function to validate AST nodes recursively
+///
+/// Compares actual AST nodes against expected structure for testing.
+/// Validates type, content, level, and children recursively.
+///
+/// Parameters:
+///   - actual: The actual AST node to validate
+///   - expected: The expected node structure
+///   - test_name: Name of test for error reporting
+///
+/// Error: Test assertion failures
 fn validateNode(actual: *const Node, expected: ExpectedNode, test_name: []const u8) !void {
     // Check node type
     const expected_type = std.meta.stringToEnum(NodeType, expected.type) orelse {

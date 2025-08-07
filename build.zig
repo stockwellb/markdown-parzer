@@ -153,6 +153,28 @@ pub fn build(b: *std.Build) void {
     test_step.dependOn(&run_parse_tests.step);
     test_step.dependOn(&run_html_tests.step);
 
+    // Documentation generation step
+    const docs_step = b.step("docs", "Generate documentation");
+    
+    // Create a special build for documentation with emit_docs flag
+    const docs_obj = b.addObject(.{
+        .name = "markdown_parzer_docs",
+        .root_module = b.createModule(.{
+            .root_source_file = b.path("src/root.zig"),
+            .target = target,
+            .optimize = optimize,
+        }),
+    });
+    docs_obj.getEmittedDocs().addStepDependencies(docs_step);
+    
+    const install_docs = b.addInstallDirectory(.{
+        .source_dir = docs_obj.getEmittedDocs(),
+        .install_dir = .prefix,
+        .install_subdir = "docs",
+    });
+    
+    docs_step.dependOn(&install_docs.step);
+
     // Just like flags, top level steps are also listed in the `--help` menu.
     //
     // The Zig build system is entirely implemented in userland, which means

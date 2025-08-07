@@ -1,10 +1,47 @@
+//! HTML renderer for Markdown AST
+//!
+//! This module converts parsed Markdown AST nodes into HTML output.
+//! It supports multiple rendering modes including full HTML documents
+//! with templates, custom templates, and body-only rendering.
+//!
+//! ## Features
+//! - Full HTML5 document generation with responsive meta tags
+//! - Custom template support with {content} placeholder
+//! - Body-only rendering for embedding in existing pages
+//! - Recursive rendering of nested elements
+//! - ZON AST deserialization and rendering
+//!
+//! ## Rendering Modes
+//! 1. **Default Template**: Modern HTML5 with viewport meta tags
+//! 2. **Custom Template**: User-provided HTML with {content} placeholder
+//! 3. **Body Only**: Just the converted content, no HTML wrapper
+//!
+//! ## Usage
+//! ```zig
+//! // Default template
+//! const html = try renderToHtml(allocator, ast);
+//!
+//! // Custom template
+//! const custom = try renderToHtmlWithTemplate(allocator, ast, template);
+//!
+//! // Body only
+//! const body = try renderToHtmlBody(allocator, ast);
+//! ```
+
 const std = @import("std");
 const parser = @import("parser.zig");
 
 const Node = parser.Node;
 const NodeType = parser.NodeType;
 
-/// Default HTML template
+/// Default HTML5 template with modern meta tags
+///
+/// This template provides:
+/// - HTML5 doctype
+/// - UTF-8 encoding
+/// - Responsive viewport settings
+/// - IE compatibility meta tag
+/// - {content} placeholder for rendered Markdown
 pub const default_html_template =
     \\<!DOCTYPE html>
     \\<html lang="en">
@@ -22,12 +59,49 @@ pub const default_html_template =
 ;
 
 /// Convert an AST node to HTML with default template
+///
+/// Renders the AST into a complete HTML5 document using the
+/// built-in default template. This is the simplest way to
+/// generate a complete, standalone HTML file.
+///
+/// Parameters:
+///   - allocator: Memory allocator for the HTML string
+///   - ast: The root AST node to render
+///
+/// Returns: Complete HTML document as a string
+///
+/// Error: Returns error.OutOfMemory if allocation fails
 pub fn renderToHtml(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
     return renderToHtmlWithTemplate(allocator, ast, default_html_template);
 }
 
 /// Convert an AST node to HTML with custom template
-/// Template should contain {content} placeholder where the rendered markdown will be inserted
+///
+/// Renders the AST into HTML and inserts it into a custom template
+/// at the {content} placeholder location. If no placeholder is found,
+/// returns just the rendered content.
+///
+/// Template Example:
+/// ```html
+/// <!DOCTYPE html>
+/// <html>
+/// <head><title>My Doc</title></head>
+/// <body>
+///   <header>Site Header</header>
+///   {content}
+///   <footer>Site Footer</footer>
+/// </body>
+/// </html>
+/// ```
+///
+/// Parameters:
+///   - allocator: Memory allocator for the HTML string
+///   - ast: The root AST node to render
+///   - template: HTML template with {content} placeholder
+///
+/// Returns: HTML document with content inserted into template
+///
+/// Error: Returns error.OutOfMemory if allocation fails
 pub fn renderToHtmlWithTemplate(allocator: std.mem.Allocator, ast: *const Node, template: []const u8) ![]u8 {
     // First render the content
     const content = try renderToHtmlBody(allocator, ast);
@@ -50,7 +124,19 @@ pub fn renderToHtmlWithTemplate(allocator: std.mem.Allocator, ast: *const Node, 
     }
 }
 
-/// Convert an AST node to HTML body only (no wrapper)
+/// Convert an AST node to HTML body content only
+///
+/// Renders just the Markdown content as HTML without any document
+/// wrapper. Perfect for embedding Markdown content into existing
+/// web pages or content management systems.
+///
+/// Parameters:
+///   - allocator: Memory allocator for the HTML string
+///   - ast: The root AST node to render
+///
+/// Returns: HTML content without document wrapper
+///
+/// Error: Returns error.OutOfMemory if allocation fails
 pub fn renderToHtmlBody(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
     var html = std.ArrayList(u8).init(allocator);
     const writer = html.writer();
@@ -61,6 +147,32 @@ pub fn renderToHtmlBody(allocator: std.mem.Allocator, ast: *const Node) ![]u8 {
 }
 
 /// Render a single AST node to HTML writer
+///
+/// Recursively renders an AST node and all its children to the
+/// provided writer. This is the core rendering function that
+/// handles all node types and their HTML representations.
+///
+/// Supported Elements:
+/// - document: Container only, renders children
+/// - heading: <h1> through <h6> based on level
+/// - paragraph: <p> tags
+/// - text: Plain text content
+/// - strong: <strong> tags
+/// - emphasis: <em> tags
+/// - code: <code> for inline code
+/// - code_block: <pre><code> for code blocks
+/// - list: <ul> for unordered lists
+/// - list_item: <li> tags
+/// - blockquote: <blockquote> tags
+/// - horizontal_rule: <hr> tags
+/// - link: <a> tags (basic implementation)
+/// - image: <img> tags (basic implementation)
+///
+/// Parameters:
+///   - writer: Any writer that implements the Writer interface
+///   - node: The AST node to render
+///
+/// Error: Returns writer errors if writing fails
 pub fn renderNode(writer: anytype, node: *const Node) !void {
     switch (node.type) {
         .document => {
@@ -180,8 +292,19 @@ pub fn renderNode(writer: anytype, node: *const Node) !void {
     }
 }
 
-/// Parse ZON AST and render to HTML
-/// This is a convenience function that combines ZON parsing + HTML rendering
+/// Parse ZON AST and render to HTML with default template
+///
+/// Convenience function that deserializes a ZON-formatted AST
+/// and renders it to HTML. This enables the HTML renderer to
+/// work directly with ZON output from the parser.
+///
+/// Parameters:
+///   - allocator: Memory allocator
+///   - zon_ast: ZON-formatted AST string
+///
+/// Returns: Complete HTML document
+///
+/// Error: Returns error.InvalidZon if ZON parsing fails
 pub fn zonAstToHtml(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8 {
     // Parse the ZON AST back into a Node structure
     var ast = try parseZonAst(allocator, zon_ast);
@@ -191,6 +314,18 @@ pub fn zonAstToHtml(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8 {
 }
 
 /// Parse ZON AST and render to HTML with custom template
+///
+/// Deserializes a ZON-formatted AST and renders it using a
+/// custom HTML template with {content} placeholder.
+///
+/// Parameters:
+///   - allocator: Memory allocator
+///   - zon_ast: ZON-formatted AST string
+///   - template: HTML template with {content} placeholder
+///
+/// Returns: HTML with content inserted into template
+///
+/// Error: Returns error.InvalidZon if ZON parsing fails
 pub fn zonAstToHtmlWithTemplate(allocator: std.mem.Allocator, zon_ast: []const u8, template: []const u8) ![]u8 {
     // Parse the ZON AST back into a Node structure
     var ast = try parseZonAst(allocator, zon_ast);
@@ -200,6 +335,17 @@ pub fn zonAstToHtmlWithTemplate(allocator: std.mem.Allocator, zon_ast: []const u
 }
 
 /// Parse ZON AST and render to HTML body only
+///
+/// Deserializes a ZON-formatted AST and renders just the
+/// content without any HTML document wrapper.
+///
+/// Parameters:
+///   - allocator: Memory allocator
+///   - zon_ast: ZON-formatted AST string
+///
+/// Returns: HTML content without wrapper
+///
+/// Error: Returns error.InvalidZon if ZON parsing fails
 pub fn zonAstToHtmlBody(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8 {
     // Parse the ZON AST back into a Node structure
     var ast = try parseZonAst(allocator, zon_ast);
@@ -208,18 +354,31 @@ pub fn zonAstToHtmlBody(allocator: std.mem.Allocator, zon_ast: []const u8) ![]u8
     return renderToHtmlBody(allocator, &ast);
 }
 
-/// Legacy function name for backward compatibility
+/// Legacy JSON support (deprecated)
+///
+/// This function exists for backward compatibility but is
+/// deprecated. Use ZON format instead for better integration
+/// with Zig's type system.
+///
+/// @deprecated Use zonAstToHtml() instead
+///
+/// Returns: error.JsonDeprecated always
 pub fn jsonAstToHtml(allocator: std.mem.Allocator, json_ast: []const u8) ![]u8 {
     return parseJsonAst(allocator, json_ast);
 }
 
-// Simple AST structure for JSON parsing (separate from the main parser Node)
+/// Internal AST structure for JSON/ZON deserialization
+///
+/// This intermediate structure is used when parsing serialized
+/// AST data. It differs from the main Node struct in that it
+/// uses slices instead of ArrayLists for children.
 const JsonAstNode = struct {
     type: NodeType,
     content: ?[]const u8 = null,
     level: ?u8 = null,
     children: []JsonAstNode = &[_]JsonAstNode{},
 
+    /// Free resources owned by this JSON AST node
     fn deinit(self: *JsonAstNode, allocator: std.mem.Allocator) void {
         if (self.content) |content| {
             allocator.free(content);
@@ -232,6 +391,7 @@ const JsonAstNode = struct {
         }
     }
 
+    /// Convert JSON AST node to parser Node structure
     fn toParserNode(self: *const JsonAstNode, allocator: std.mem.Allocator) !Node {
         var node = Node.init(allocator, self.type);
 
@@ -251,7 +411,10 @@ const JsonAstNode = struct {
     }
 };
 
-// ZON AST input structure
+/// ZON AST input structure for deserialization
+///
+/// Matches the ZON format produced by the parser's astToZon()
+/// function. Uses slices for zero-copy parsing.
 const ZonAstInput = struct {
     type: NodeType,
     content: ?[]const u8 = null,
@@ -259,6 +422,19 @@ const ZonAstInput = struct {
     children: []ZonAstInput = &[_]ZonAstInput{},
 };
 
+/// Parse a ZON-formatted AST string into a Node structure
+///
+/// Uses Zig's built-in ZON parser to deserialize the AST.
+/// The ZON format preserves enum types and structure better
+/// than JSON.
+///
+/// Parameters:
+///   - allocator: Memory allocator for the Node
+///   - zon: ZON-formatted AST string
+///
+/// Returns: Parsed Node structure
+///
+/// Error: Returns error.InvalidZon if parsing fails
 fn parseZonAst(allocator: std.mem.Allocator, zon: []const u8) !Node {
     // Use std.zon.parse.fromSlice for ZON data
     // Need null-terminated string for ZON parser
@@ -271,6 +447,17 @@ fn parseZonAst(allocator: std.mem.Allocator, zon: []const u8) !Node {
     return try zonInputToNode(allocator, parsed);
 }
 
+/// Convert ZON input structure to parser Node
+///
+/// Recursively converts the deserialized ZON structure into
+/// the Node format used by the renderer. Handles content
+/// duplication and child node creation.
+///
+/// Parameters:
+///   - allocator: Memory allocator
+///   - input: Deserialized ZON structure
+///
+/// Returns: Converted Node structure
 fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
     // Get node type directly from enum
     const node_type = input.type;
@@ -295,6 +482,14 @@ fn zonInputToNode(allocator: std.mem.Allocator, input: ZonAstInput) !Node {
     return node;
 }
 
+/// Parse JSON AST (deprecated)
+///
+/// JSON support is deprecated in favor of ZON format.
+/// This function always returns an error.
+///
+/// @deprecated Use parseZonAst() instead
+///
+/// Returns: error.JsonDeprecated always
 fn parseJsonAst(allocator: std.mem.Allocator, json: []const u8) ![]u8 {
     // Legacy JSON support - deprecated, use ZON instead
     _ = json;

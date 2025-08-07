@@ -1,5 +1,38 @@
+//! Lexical analyzer for Markdown text
+//!
+//! This module provides a comprehensive tokenizer for Markdown documents,
+//! breaking input text into discrete tokens for further processing.
+//! The lexer handles all standard Markdown syntax elements, special characters,
+//! and non-printing Unicode characters.
+//!
+//! ## Features
+//! - Complete Markdown syntax support (39+ token types)
+//! - Non-printing character detection (zero-width spaces, control chars, etc.)
+//! - Accurate line/column position tracking for error reporting
+//! - Cross-platform line ending support (\r\n, \r, \n)
+//! - Memory-efficient streaming design
+//! - No allocations required (operates on input slice)
+//!
+//! ## Usage
+//! ```zig
+//! var tokenizer = Tokenizer.init("# Hello World");
+//! while (true) {
+//!     const token = tokenizer.next();
+//!     if (token.type == .eof) break;
+//!     // Process token
+//! }
+//! ```
+
 const std = @import("std");
 
+/// Token types representing all possible lexical elements in Markdown
+///
+/// The TokenType enum categorizes every character and character sequence
+/// that has significance in Markdown parsing. This includes:
+/// - Single character tokens for Markdown syntax
+/// - Multi-character tokens for text and digits
+/// - Non-printing character tokens for special Unicode handling
+/// - EOF token to signal end of input
 pub const TokenType = enum {
     // Single character tokens
     hash, // #
@@ -53,26 +86,79 @@ pub const TokenType = enum {
     eof, // end of file
 };
 
+/// A single token produced by the lexer
+///
+/// Each token captures:
+/// - The type of token (what kind of Markdown element)
+/// - The actual text value from the input
+/// - The position where the token started (line and column)
+///
+/// Position information is crucial for error reporting and
+/// maintaining source mapping through the parsing pipeline.
 pub const Token = struct {
+    /// The type of this token
     type: TokenType,
+    /// The raw text value from the input (slice into original input)
     value: []const u8,
+    /// Line number where this token starts (1-based)
     line: u32,
+    /// Column number where this token starts (1-based)
     column: u32,
 };
 
+/// Streaming tokenizer for Markdown text
+///
+/// The Tokenizer processes input text character by character,
+/// producing a stream of tokens. It maintains internal state
+/// for position tracking and operates without allocations.
+///
+/// ## Design
+/// - Zero allocations: operates entirely on the input slice
+/// - Single pass: O(n) time complexity
+/// - Streaming: can process arbitrarily large inputs
+/// - Stateful: maintains position for accurate error reporting
+///
+/// ## Line Ending Handling
+/// The tokenizer normalizes line endings by:
+/// - Treating \n as the canonical newline token
+/// - Silently consuming \r characters
+/// - Properly handling \r\n (Windows) and \r (old Mac) endings
 pub const Tokenizer = struct {
+    /// The complete input text being tokenized (not owned by tokenizer)
     input: []const u8,
+    /// Current byte position in the input
     position: usize = 0,
+    /// Current line number (1-based)
     line: u32 = 1,
+    /// Current column number (1-based)
     column: u32 = 1,
 
     /// Initialize a new tokenizer with the given input string
+    ///
+    /// The tokenizer does not take ownership of the input slice.
+    /// The caller must ensure the input remains valid for the
+    /// lifetime of the tokenizer.
+    ///
+    /// Parameters:
+    ///   - input: The Markdown text to tokenize
+    ///
+    /// Returns: A new tokenizer ready to produce tokens
     pub fn init(input: []const u8) Tokenizer {
         return Tokenizer{ .input = input };
     }
 
-    /// Get the next token from the input
-    /// Returns EOF token when input is exhausted
+    /// Get the next token from the input stream
+    ///
+    /// This is the main tokenization function. It examines the current
+    /// position in the input and produces the appropriate token.
+    ///
+    /// The tokenizer automatically:
+    /// - Skips carriage return characters (\r)
+    /// - Detects multi-byte Unicode sequences
+    /// - Aggregates consecutive text characters
+    /// - Tracks line and column positions
+    ///
+    /// Returns: The next token, or EOF token when input is exhausted
     pub fn next(self: *Tokenizer) Token {
         // Skip carriage returns only
         self.skipCarriageReturn();
@@ -128,7 +214,18 @@ pub const Tokenizer = struct {
     }
 
     /// Try to consume a multi-byte Unicode non-printing character
-    /// Returns token if found, null otherwise
+    ///
+    /// Detects and consumes specific Unicode non-printing characters:
+    /// - Zero-width space (U+200B): 3 bytes, no visual width
+    /// - Byte order mark (U+FEFF): 3 bytes, usually invisible
+    /// - Non-breaking space (U+00A0): 2 bytes, takes one column
+    ///
+    /// Parameters:
+    ///   - start_line: Line number where token started
+    ///   - start_column: Column number where token started
+    ///   - start_pos: Byte position where token started
+    ///
+    /// Returns: Token if Unicode non-printing character found, null otherwise
     fn tryConsumeUnicodeNonPrinting(self: *Tokenizer, start_line: u32, start_column: u32, start_pos: usize) ?Token {
         if (self.getUnicodeNonPrintingType()) |unicode_type| {
             // Advance by the appropriate number of bytes and update column
@@ -152,8 +249,17 @@ pub const Tokenizer = struct {
         return null;
     }
 
-    /// Collect consecutive text characters until hitting a special character,
-    /// non-printing character, or end of input
+    /// Collect consecutive text characters into a single text token
+    ///
+    /// This function aggregates multiple consecutive non-special characters
+    /// into a single text token for efficiency. It stops when encountering:
+    /// - Any Markdown special character
+    /// - Any non-printing character
+    /// - Carriage return (\r)
+    /// - End of input
+    ///
+    /// This aggregation reduces the number of tokens and improves
+    /// parser performance for large blocks of plain text.
     fn collectText(self: *Tokenizer) void {
         while (self.peek()) |c| {
             if (c == '\r') break; // Stop at \r (will be skipped by next() call)
@@ -165,14 +271,26 @@ pub const Tokenizer = struct {
     }
 
     /// Look at the current character without consuming it
-    /// Returns null if at end of input
+    ///
+    /// Peek is used for lookahead operations without advancing
+    /// the tokenizer position. Essential for multi-character
+    /// token detection.
+    ///
+    /// Returns: Current character, or null if at end of input
     fn peek(self: *const Tokenizer) ?u8 {
         if (self.position >= self.input.len) return null;
         return self.input[self.position];
     }
 
     /// Consume the current character and advance position
-    /// Updates line and column tracking for error reporting
+    ///
+    /// Advances the tokenizer by one byte and updates position tracking:
+    /// - Increments column for most characters
+    /// - Increments line and resets column for newlines
+    /// - Handles multi-byte sequences correctly
+    ///
+    /// This function maintains the invariant that line/column
+    /// always reflect the visual position in the source text.
     fn advance(self: *Tokenizer) void {
         if (self.position < self.input.len) {
             const c = self.input[self.position];
@@ -186,8 +304,14 @@ pub const Tokenizer = struct {
         }
     }
 
-    /// Skip only carriage returns
-    /// Spaces, tabs, and newlines are significant tokens in Markdown
+    /// Skip carriage return characters (\r)
+    ///
+    /// Markdown treats \r as insignificant, normalizing all line endings
+    /// to \n tokens. This function silently consumes \r characters without
+    /// updating line/column tracking, maintaining cross-platform compatibility.
+    ///
+    /// Note: Spaces, tabs, and newlines are significant in Markdown and
+    /// are NOT skipped - they produce their own tokens.
     fn skipCarriageReturn(self: *Tokenizer) void {
         while (self.position < self.input.len and 
                self.input[self.position] == '\r') {
@@ -195,7 +319,18 @@ pub const Tokenizer = struct {
         }
     }
 
-    /// Helper to create a token and advance
+    /// Create a token from the current tokenizer state
+    ///
+    /// Constructs a Token struct with the given type and position information.
+    /// The token's value is a slice from start_pos to current position.
+    ///
+    /// Parameters:
+    ///   - token_type: The type of token to create
+    ///   - start_line: Line where the token started
+    ///   - start_column: Column where the token started
+    ///   - start_pos: Byte position where the token started
+    ///
+    /// Returns: A new Token with the specified properties
     fn makeToken(self: *const Tokenizer, token_type: TokenType, start_line: u32, start_column: u32, start_pos: usize) Token {
         return Token{
             .type = token_type,
@@ -205,7 +340,17 @@ pub const Tokenizer = struct {
         };
     }
 
-    /// Check if a character is a non-printing character that should be categorized
+    /// Classify single-byte non-printing characters
+    ///
+    /// Detects ASCII control characters and other non-printing bytes:
+    /// - Control characters (0x00-0x1F) except tab/newline/carriage return
+    /// - DEL character (0x7F)
+    /// - Non-breaking space in Latin-1 encoding (0xA0)
+    ///
+    /// Parameters:
+    ///   - c: The byte to classify
+    ///
+    /// Returns: TokenType for non-printing character, or null if printable
     fn getNonPrintingTokenType(c: u8) ?TokenType {
         // Control characters (0x00-0x1F) except tab, newline, carriage return
         if (c < 0x20 and c != '\t' and c != '\n' and c != '\r') {
@@ -226,7 +371,18 @@ pub const Tokenizer = struct {
         return null;
     }
     
-    /// Check if we're looking at a multi-byte Unicode non-printing character
+    /// Detect multi-byte Unicode non-printing characters
+    ///
+    /// Examines the byte sequence starting at current position to detect
+    /// UTF-8 encoded non-printing characters. Currently detects:
+    /// - Zero-width space (U+200B): E2 80 8B
+    /// - Byte order mark (U+FEFF): EF BB BF
+    /// - Non-breaking space (U+00A0): C2 A0
+    ///
+    /// This function does NOT consume the bytes - it only detects them.
+    /// Use tryConsumeUnicodeNonPrinting() to actually consume them.
+    ///
+    /// Returns: TokenType if Unicode non-printing sequence detected, null otherwise
     fn getUnicodeNonPrintingType(self: *const Tokenizer) ?TokenType {
         if (self.position >= self.input.len) return null;
         
@@ -259,6 +415,16 @@ pub const Tokenizer = struct {
         return null;
     }
     
+    /// Map a single character to its token type
+    ///
+    /// Central dispatch function that classifies ASCII characters
+    /// into their Markdown token types. This includes all special
+    /// characters used in Markdown syntax.
+    ///
+    /// Parameters:
+    ///   - c: The character to classify
+    ///
+    /// Returns: TokenType for the character, or null if not a special character
     fn getTokenType(c: u8) ?TokenType {
         return switch (c) {
             '#' => .hash,
@@ -303,7 +469,7 @@ pub const Tokenizer = struct {
     }
 };
 
-// Test data structures for .zon parsing
+// Test data structures for comprehensive testing
 const TestCase = struct {
     name: []const u8,
     input: []const u8,
@@ -321,6 +487,15 @@ const TestData = struct {
     test_cases: []const TestCase,
 };
 
+/// Convert a string representation to a TokenType enum value
+///
+/// Used in testing to convert expected token type strings to enums.
+/// Panics if the string doesn't match any TokenType.
+///
+/// Parameters:
+///   - type_str: String name of the token type
+///
+/// Returns: Corresponding TokenType enum value
 fn stringToTokenType(type_str: []const u8) TokenType {
     return std.meta.stringToEnum(TokenType, type_str) orelse {
         std.debug.panic("Unknown token type: {s}", .{type_str});
